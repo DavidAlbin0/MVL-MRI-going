@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react"; // Asegúrate de importar useState y useEffect
+import React, { useState, useEffect, useRef } from "react";
 import * as Location from "expo-location";
 import {
   Button,
@@ -9,212 +9,261 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  Linking
+  Linking,
+  View,
+  Modal,
 } from "react-native";
 import Carousel from "react-native-snap-carousel";
-import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from "react-native-maps";
-import { Picker } from "@react-native-picker/picker";
-import IMAGES from "../assets/indexm";
+import MapView, { Marker, UrlTile } from "react-native-maps";
 import { useNavigation } from "@react-navigation/native";
-//import MapViewDirections from "react-native-maps-directions";
-//import { GOOGLE_MAPS_KEY } from "@env";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
-//import Geolocation from '@react-native-community/geolocation';
+import { Ionicons } from "@expo/vector-icons";
 
 const data = [
   { id: 1, title: "CheckUps", image: "https://i.imgur.com/jrViBRq.jpeg" },
   { id: 2, title: "Reembolsos", image: "https://i.imgur.com/Zktxl1j.jpeg" },
   { id: 3, title: "Resonancias", image: "https://i.imgur.com/NqSHDQx.png" },
-  { id: 4, title: "Tomografías", image: "https://i.imgur.com/2XLVK0I.jpeg" }, 
+  { id: 4, title: "Tomografías", image: "https://i.imgur.com/2XLVK0I.jpeg" },
+];
+
+const SUCURSALES_STATIC = [
+  {
+    id: "cuernavaca",
+    title: "Cuernavaca (Matriz)",
+    shortName: "Cuernavaca",
+    description: "Av. Cuauhtémoc, Cantarranas",
+    address: "Av. Cuauhtémoc #100, Col. Cantarranas, Cuernavaca, Morelos",
+    phone: "777 362 0260",
+    horario: "Lun a Vie: 7:00 am - 8:00 pm | Sáb: 7:00 am - 3:00 pm",
+    badge: "Matriz Principal",
+    latlng: { latitude: 18.925978915069365, longitude: -99.22879388097707 },
+    isCurrent: false,
+  },
+  {
+    id: "jojutla",
+    title: "Jojutla (Sucursal)",
+    shortName: "Jojutla",
+    description: "Centro, Jojutla",
+    address: "Calle Zayas Enríquez #202, Col. Centro, Jojutla, Morelos",
+    phone: "734 342 8110",
+    horario: "Lun a Sáb: 7:00 am - 3:00 pm",
+    badge: "Sucursal Sur",
+    latlng: { latitude: 18.617170, longitude: -99.192552 },
+    isCurrent: false,
+  },
+  {
+    id: "jiutepec",
+    title: "Jiutepec (Sucursal)",
+    shortName: "Jiutepec",
+    description: "Insurgentes, Jiutepec",
+    address: "Av. Insurgentes #45, Col. Centro, Jiutepec, Morelos",
+    phone: "777 319 7500",
+    horario: "Lun a Vie: 7:00 am - 7:00 pm | Sáb: 7:00 am - 2:00 pm",
+    badge: "Sucursal Oriente",
+    latlng: { latitude: 18.898535, longitude: -99.171207 },
+    isCurrent: false,
+  },
+  {
+    id: "cuautla",
+    title: "Cuautla (Sucursal)",
+    shortName: "Cuautla",
+    description: "Centro, Cuautla",
+    address: "Calle Batalla 19 de Febrero #30, Centro, Cuautla, Morelos",
+    phone: "735 354 5020",
+    horario: "Lun a Sáb: 7:00 am - 3:00 pm",
+    badge: "Sucursal Cuautla",
+    latlng: { latitude: 18.816393, longitude: -98.948435 },
+    isCurrent: false,
+  },
 ];
 
 const HomeScreen = () => {
   const carouselRef = useRef(null);
   const [isCarouselSnapping, setCarouselSnapping] = useState(false);
   const navigation = useNavigation();
-  const [sucursal, guardarSucursal] = useState("");
-  const [origin, setOrigin] = useState({});
+  const [origin, setOrigin] = useState(null);
   const scrollViewRef = useRef(null);
+  const mapRef = useRef(null);
   const [token, setToken] = useState(null);
 
-  const [destination, setDestination] = useState({
-    latitude: 18.92611986330235,
-    longitude: -99.22881946670378,
-  });
-  const [region] = useState({
+  const [region, setRegion] = useState({
     latitude: 18.82915220343986,
     longitude: -99.12603465859554,
     latitudeDelta: 0.95,
     longitudeDelta: 0.55,
   });
-  const [markers, setMarkers] = useState([]);
-  const [refreshKey, setRefreshKey] = useState(Date.now()); // Agrega el estado para el refreshKey
 
-  // Utiliza useFocusEffect para actualizar el refreshKey cada vez que la pantalla reciba el foco
+  const [selectedBranch, setSelectedBranch] = useState(null); // null = todas
+  const [modalSucursales, setModalSucursales] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(Date.now());
+
   useEffect(() => {
-    getLocationPermission();
-    setRefreshKey(Date.now()); // Actualiza el refreshKey cuando la pantalla recibe el foco
+    setRefreshKey(Date.now());
+    setTimeout(() => {
+      getLocationPermission();
+    }, 100);
   }, []);
-  
-  const getLocationPermission = async () => {
-    let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
-      alert("Permiso denegado para acceder a la ubicación");
-      return;
-    }
-    let location = await Location.getCurrentPositionAsync({});
-    const currentLocation = {
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
-    };
-    setOrigin(currentLocation);
-    
-    setMarkers([
-      {
-        latlng: currentLocation,
-        title: "Ubicación Actual",
-        description: "¡Aquí estás!",
-      },
-      {
-        latlng: { latitude: 18.925978915069365, longitude: -99.22879388097707 },
-        title: "Cuernavaca",
-        description: "Matriz",
-         
-      },
-      {
-        latlng: { latitude: 18.617170, longitude: -99.192552 },
-        title: "Jojutla",
-        description: "Sucursal",
-      },
-      {
-        latlng: { latitude: 18.898535, longitude:  -99.171207 },
-        title: "Jiutepec",
-        description: "Sucursal",
-        
-      },
-      {
-        latlng: { latitude: 18.816393, longitude: -98.948435 },
-        title: "Cuautla",
-        description: "Sucursal",
 
-         
-      },
-    ]);
-  };
-
-  const handleWhatsApp = () => {
-    const phoneNumber = "+52 1 777 362 0260"; // Reemplaza esto con el número de WhatsApp al que deseas enviar el mensaje
-    const message =
-      "¡Hola! Estoy utilizando tu Aplicacion Movil y quiero cotizar un servicio"; // Mensaje automático
-    const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(
-      message
-    )}`;
-    Linking.openURL(url)
-      .then((data) => {
-        console.log("WhatsApp abierto:", data);
-      })
-      .catch((error) => {
-        console.log("Error al abrir WhatsApp:", error);
-      });
-  };
-
-
-  const onRegionChange = (newRegion) => {};
-
-  const _renderItem = ({ item, index }) => {
-    return (
-      <SafeAreaView>
-        <Image
-          source={{ uri: `${item.image}?${refreshKey}` }} // Utiliza el refreshKey aquí
-          style={{
-            height: Dimensions.get("window").width,
-            width: Dimensions.get("window").width,
-          }}
-        />
-      </SafeAreaView>
-    );
-  };
-
-  //Se obtiene el token aqui
   useEffect(() => {
     const getToken = async () => {
       try {
         const storedToken = await AsyncStorage.getItem("token");
-        console.log("Token almacenado:", storedToken);
         setToken(storedToken);
       } catch (error) {
         console.error("Error al obtener el token:", error);
       }
     };
     getToken();
-
-    // Establecer un intervalo para verificar el token cada cierto tiempo
-    const interval = setInterval(getToken, 5000); // Verificar cada 5 segundos
-
-    // Limpia el intervalo cuando el componente se desmonta para evitar fugas de memoria
+    const interval = setInterval(getToken, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  //Navegacion de las imagenes principales
-
-  //navega al mapa de la sucursales
-  const handleScrollToSucursales = () => {
-    if (scrollViewRef.current) {
-      scrollViewRef.current.scrollTo({
-        y: 2100, // Cambia esto según la altura de los componentes que quieres saltar
-        animated: true,
-        duration: 100000, // Duración de la animación en milisegundos
-      });
+  const getLocationPermission = async () => {
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        return;
+      }
+      let location = await Location.getLastKnownPositionAsync({});
+      if (!location) {
+        location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Low,
+        });
+      }
+      if (location && location.coords) {
+        const currentLocation = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        };
+        setOrigin(currentLocation);
+      }
+    } catch (error) {
+      console.log("Error al obtener ubicación:", error);
     }
   };
 
-  //navega a los servicios
-  const handleScrollToServicios = () => {
-    if (scrollViewRef.current) {
-      scrollViewRef.current.scrollTo({
-        y: 700, // Cambia esto según la altura de los componentes que quieres saltar
-        animated: true,
-        duration: 100000, // Duración de la animación en milisegundos
-      });
-    }
+  const handleWhatsApp = () => {
+    const phoneNumber = "+52 1 777 362 0260";
+    const message =
+      "¡Hola! Estoy utilizando tu Aplicación Móvil y quiero cotizar un servicio";
+    const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(
+      message
+    )}`;
+    Linking.openURL(url).catch((err) => console.log("Error al abrir WhatsApp:", err));
   };
 
-  //navega a la pantalla de analisis clinicos
   const handlePress = () => {
     if (token) {
-      // Si hay un token, navega a la pantalla de HistoriaslEstudios
       navigation.navigate("HistorialStudio");
     } else {
-      // Si no hay un token, navega a la pantalla de Settings
       navigation.navigate("Configuracion");
     }
   };
 
-  //Esto hace que el carrousel vaya del 4 al 1
+  const handleScrollToSucursales = () => {
+    setModalSucursales(true);
+  };
 
-  const handleSnapToItem = (index) => {
-    if (carouselRef.current && index === data.length - 1 && !isCarouselSnapping) {
-      setCarouselSnapping(true);
+  const handleSelectBranch = (branch) => {
+    setSelectedBranch(branch);
+    setModalSucursales(false);
+
+    setTimeout(() => {
+      if (scrollViewRef.current) {
+        scrollViewRef.current.scrollTo({
+          y: 650,
+          animated: true,
+        });
+      }
+
+      if (branch && mapRef.current) {
+        mapRef.current.animateToRegion(
+          {
+            latitude: branch.latlng.latitude,
+            longitude: branch.latlng.longitude,
+            latitudeDelta: 0.012,
+            longitudeDelta: 0.012,
+          },
+          1000
+        );
+      } else if (!branch && mapRef.current) {
+        mapRef.current.animateToRegion(
+          {
+            latitude: 18.82915220343986,
+            longitude: -99.12603465859554,
+            latitudeDelta: 0.95,
+            longitudeDelta: 0.55,
+          },
+          1000
+        );
+      }
+    }, 200);
+  };
+
+  const handleNavegarSucursal = (branch) => {
+    if (!branch) return;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${branch.latlng.latitude},${branch.latlng.longitude}`;
+    Linking.openURL(url);
+  };
+
+  const handleLlamarSucursal = (phone) => {
+    if (!phone) return;
+    Linking.openURL(`tel:${phone.replace(/\s+/g, "")}`);
+  };
+
+  const handleWhatsAppSucursal = (branch) => {
+    const phoneNumber = "+52 1 777 362 0260";
+    const branchName = branch ? branch.title : "Imagen Médica MRI";
+    const message = `¡Hola! Me gustaría cotizar o solicitar informes para la sucursal *${branchName}*.`;
+    const url = `whatsapp://send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
+    Linking.openURL(url).catch(() => {
+      Linking.openURL(`https://wa.me/5217773620260?text=${encodeURIComponent(message)}`);
+    });
+  };
+
+  const displayedMarkers = selectedBranch
+    ? SUCURSALES_STATIC.filter((s) => s.id === selectedBranch.id)
+    : (origin
+        ? [{ latlng: origin, title: "Ubicación Actual", description: "¡Aquí estás!", isCurrent: true }, ...SUCURSALES_STATIC]
+        : SUCURSALES_STATIC);
+
+  const handleSnapToItem = () => {
+    if (carouselRef.current && isCarouselSnapping) {
       setTimeout(() => {
         carouselRef.current.snapToItem(0);
         setCarouselSnapping(false);
       }, 5000);
     }
   };
-  
+
+  const _renderItem = ({ item }) => {
+    return (
+      <SafeAreaView>
+        <Image
+          source={{ uri: `${item.image}?${refreshKey}` }}
+          style={{
+            height: Dimensions.get("window").width * 0.65,
+            width: Dimensions.get("window").width,
+            resizeMode: "cover",
+          }}
+        />
+      </SafeAreaView>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.colordelfondo}>
-      <SafeAreaView >
+      <SafeAreaView style={{ flex: 1 }}>
         <ScrollView ref={scrollViewRef}>
-          {/* Recuadro Azul */}
+          {/* Header Logo ALIGNED LEFT */}
           <SafeAreaView style={styles.container}>
             <Image
               source={require("../assets/logos/logoph.png")}
               style={styles.mid}
             />
           </SafeAreaView>
+
+          {/* Carousel */}
           <SafeAreaView style={styles.backg}>
             <Carousel
               ref={carouselRef}
@@ -222,21 +271,31 @@ const HomeScreen = () => {
               renderItem={_renderItem}
               sliderWidth={Dimensions.get("window").width}
               itemWidth={Dimensions.get("window").width}
-              autoplay={true} //Que se mueva solo
-              autoplayInterval={4000} //que se mueva cada 5 segundos
-              lockScrollWhileSnapping={true} // Establecer lockScrollWhileSnapping en true
-              onSnapToItem={handleSnapToItem} //Reinicia el carousel
+              autoplay={true}
+              autoplayInterval={4000}
+              lockScrollWhileSnapping={true}
+              onSnapToItem={handleSnapToItem}
             />
           </SafeAreaView>
-          <SafeAreaView>
-          <TouchableOpacity>
-                <Text style={styles.calidadCalid2} onPress={handleWhatsApp}>
-                  ¿Necesitas Cotizar?
+
+          {/* Compact Green WhatsApp Button */}
+          <View style={styles.whaty}>
+            <TouchableOpacity style={styles.botonwhat} onPress={handleWhatsApp}>
+              <View style={styles.whatsappContainer}>
+                <Ionicons name="logo-whatsapp" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.subtitulowhats}>
+                  ¿Necesitas Cotizar? Cotiza vía WhatsApp
                 </Text>
-              </TouchableOpacity>
-            <SafeAreaView style={styles.titulo}>
-              <Text style={styles.subtitulo1}>¡Bienvenido!</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* Bienvenido Section */}
+          <SafeAreaView style={{ marginTop: 5 }}>
+            <SafeAreaView style={styles.tituloBienvenido}>
+              <Text style={styles.subtitulo1}>¡BIENVENIDO!</Text>
             </SafeAreaView>
+
             <SafeAreaView style={styles.flexIcon}>
               <TouchableOpacity
                 style={styles.imageContainer}
@@ -246,17 +305,20 @@ const HomeScreen = () => {
                   source={require("../assets/iconos/Ubicaciones.png")}
                   style={styles.imageNav}
                 />
-                <Text>Sucursales</Text>
+                <Text style={{ marginTop: 6, fontWeight: "600", color: "#333" }}>Sucursales</Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.imageContainer}
-                onPress={() => navigation.navigate("AllProducts")}              >
+                onPress={() => navigation.navigate("AllProducts")}
+              >
                 <Image
                   source={require("../assets/iconos/Estetoscopio.png")}
                   style={styles.imageNav}
                 />
-                <Text>Servicios</Text>
+                <Text style={{ marginTop: 6, fontWeight: "600", color: "#333" }}>Servicios</Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.imageContainer}
                 onPress={handlePress}
@@ -265,45 +327,257 @@ const HomeScreen = () => {
                   source={require("../assets/iconos/Agenda.png")}
                   style={styles.imageNav}
                 />
-                <Text>Resultados</Text>
+                <Text style={{ marginTop: 6, fontWeight: "600", color: "#333" }}>Resultados</Text>
               </TouchableOpacity>
             </SafeAreaView>
-          </SafeAreaView>
-          
-          <SafeAreaView style={styles.contaComp}>
-            <SafeAreaView style={styles.titulo}>
-              <Text style={styles.subtitulo11}>
-                ¿No conoces tu sucursal más cercana?
-              </Text>
-              <Text style={styles.subtitulo2}>Encuéntrala aquí</Text>
-            </SafeAreaView>
-            <MapView
-  style={styles.map}
-  region={region}
-  onRegionChange={onRegionChange}
->
-  {markers.map((marker, index) => (
-    <Marker
-      key={index}
-      coordinate={marker.latlng}
-      title={marker.title}
-      description={marker.description}
-      image={
-        marker.latlng === origin
-          ? require("../assets/iconos/ubigood.png") // Imagen para ubicación actual
-          : require("../assets/iconos/othergood.png") // Imagen para otros marcadores
-          
-      }
-    />
-  ))}
-</MapView>
 
+            {/* Banner de Promociones y Descuentos */}
+            <TouchableOpacity
+              style={styles.promoBannerHome}
+              onPress={() => navigation.navigate("PromoDesc")}
+              activeOpacity={0.88}
+            >
+              <View style={styles.promoBannerLeft}>
+                <View style={styles.promoTagHome}>
+                  <Ionicons name="flame" size={12} color="#FFF" style={{ marginRight: 4 }} />
+                  <Text style={styles.promoTagHomeText}>OFERTAS Y CUPONES</Text>
+                </View>
+                <Text style={styles.promoTitleHome}>Promociones y Descuentos</Text>
+                <Text style={styles.promoSubHome}>Hasta 30% OFF en Resonancias, Check-ups y más →</Text>
+              </View>
+              <View style={styles.promoIconRight}>
+                <Ionicons name="pricetag" size={24} color="#000684" />
+              </View>
+            </TouchableOpacity>
+          </SafeAreaView>
+
+          {/* Sucursales & Map */}
+          <SafeAreaView style={styles.contaComp}>
+            <SafeAreaView style={styles.tituloBanner}>
+              <Text style={styles.subtitulo11}>
+                ¿NO CONOCES TU SUCURSAL MÁS CERCANA?
+              </Text>
+              <Text style={styles.subtitulo2}>
+                {selectedBranch ? `Mostrando: ${selectedBranch.title}` : "Encuéntrala aquí"}
+              </Text>
+            </SafeAreaView>
+
+            {/* Chips selector de sucursales en el mapa */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.branchChipsScroll}
+            >
+              <TouchableOpacity
+                style={[styles.branchChip, selectedBranch === null && styles.branchChipActive]}
+                onPress={() => handleSelectBranch(null)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.branchChipText, selectedBranch === null && styles.branchChipTextActive]}>
+                  Todas (4)
+                </Text>
+              </TouchableOpacity>
+              {SUCURSALES_STATIC.map((sucursal) => {
+                const isSelected = selectedBranch?.id === sucursal.id;
+                return (
+                  <TouchableOpacity
+                    key={sucursal.id}
+                    style={[styles.branchChip, isSelected && styles.branchChipActive]}
+                    onPress={() => handleSelectBranch(sucursal)}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons
+                      name="location"
+                      size={13}
+                      color={isSelected ? "#FFFFFF" : "#000684"}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text style={[styles.branchChipText, isSelected && styles.branchChipTextActive]}>
+                      {sucursal.shortName}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.mapWrapper}>
+              <MapView
+                ref={mapRef}
+                key={refreshKey}
+                style={styles.map}
+                initialRegion={region}
+                onRegionChangeComplete={(newRegion) => setRegion(newRegion)}
+              >
+                <UrlTile
+                  urlTemplate="https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+                  maximumZ={19}
+                  tileSize={256}
+                  zIndex={1}
+                />
+                {displayedMarkers.map((marker, index) => (
+                  <Marker
+                    key={marker.id || marker.title || index}
+                    coordinate={marker.latlng}
+                    title={marker.title}
+                    description={marker.description}
+                    tracksViewChanges={false}
+                  >
+                    <Image
+                      source={
+                        marker.isCurrent
+                          ? require("../assets/iconos/ubigood.png")
+                          : require("../assets/iconos/othergood.png")
+                      }
+                      style={{ width: 38, height: 38 }}
+                      resizeMode="contain"
+                    />
+                  </Marker>
+                ))}
+              </MapView>
+            </View>
+
+            {/* Tarjeta de información de la sucursal seleccionada */}
+            {selectedBranch && (
+              <View style={styles.branchCard}>
+                <View style={styles.branchCardHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.branchCardTitle}>{selectedBranch.title}</Text>
+                    <View style={styles.branchBadgeRow}>
+                      <View style={styles.branchBadge}>
+                        <Text style={styles.branchBadgeText}>{selectedBranch.badge}</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.branchCloseSelect}
+                    onPress={() => handleSelectBranch(null)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.branchCloseSelectText}>Ver todas</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.branchInfoRow}>
+                  <Ionicons name="location-outline" size={17} color="#000684" style={{ marginRight: 8, marginTop: 1 }} />
+                  <Text style={styles.branchInfoText}>{selectedBranch.address}</Text>
+                </View>
+
+                <View style={styles.branchInfoRow}>
+                  <Ionicons name="time-outline" size={17} color="#000684" style={{ marginRight: 8, marginTop: 1 }} />
+                  <Text style={styles.branchInfoText}>{selectedBranch.horario}</Text>
+                </View>
+
+                <View style={styles.branchInfoRow}>
+                  <Ionicons name="call-outline" size={17} color="#000684" style={{ marginRight: 8, marginTop: 1 }} />
+                  <Text style={styles.branchInfoText}>{selectedBranch.phone}</Text>
+                </View>
+
+                {/* Botones de acción rápida */}
+                <View style={styles.branchActionsRow}>
+                  <TouchableOpacity
+                    style={styles.btnNavigate}
+                    onPress={() => handleNavegarSucursal(selectedBranch)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="navigate" size={14} color="#FFFFFF" style={{ marginRight: 5 }} />
+                    <Text style={styles.btnNavigateText}>Cómo Llegar</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.btnCall}
+                    onPress={() => handleLlamarSucursal(selectedBranch.phone)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="call" size={14} color="#000684" style={{ marginRight: 5 }} />
+                    <Text style={styles.btnCallText}>Llamar</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.btnBranchWhatsApp}
+                    onPress={() => handleWhatsAppSucursal(selectedBranch)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="logo-whatsapp" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
             <Text style={styles.calidadCalid}>
               Calidad y calidez, para tu salud{" "}
             </Text>
           </SafeAreaView>
         </ScrollView>
+
+        {/* MODAL SELECTOR DE SUCURSALES */}
+        <Modal
+          visible={modalSucursales}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setModalSucursales(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalSucursalContent}>
+              <View style={styles.modalSucursalHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalSucursalTitle}>Nuestras Sucursales</Text>
+                  <Text style={styles.modalSucursalSub}>
+                    Selecciona una para ver su ubicación en el mapa
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.modalCloseBtn}
+                  onPress={() => setModalSucursales(false)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close" size={24} color="#333" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
+                {SUCURSALES_STATIC.map((sucursal) => {
+                  const isSelected = selectedBranch?.id === sucursal.id;
+                  return (
+                    <TouchableOpacity
+                      key={sucursal.id}
+                      style={[styles.sucursalModalItem, isSelected && styles.sucursalModalItemActive]}
+                      onPress={() => handleSelectBranch(sucursal)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.sucursalItemIconBox}>
+                        <Ionicons name="location" size={22} color="#000684" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center" }}>
+                          <Text style={styles.sucursalItemTitle}>{sucursal.title}</Text>
+                          <View style={styles.sucursalItemBadge}>
+                            <Text style={styles.sucursalItemBadgeText}>{sucursal.badge}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.sucursalItemAddress} numberOfLines={2}>
+                          {sucursal.address}
+                        </Text>
+                        <Text style={styles.sucursalItemHours}>
+                          🕒 {sucursal.horario}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#000684" />
+                    </TouchableOpacity>
+                  );
+                })}
+
+                <TouchableOpacity
+                  style={styles.btnVerTodasModal}
+                  onPress={() => handleSelectBranch(null)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="map-outline" size={18} color="#000684" style={{ marginRight: 8 }} />
+                  <Text style={styles.btnVerTodasModalText}>Ver todas las sucursales en el mapa</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </SafeAreaView>
   );
@@ -313,204 +587,454 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: "#ffffff",
     height: 65,
-    marginTop: 30,
-    marginBottom: 25,
+    marginTop: 35,
+    marginBottom: 5,
+    justifyContent: "center",
+    alignItems: "flex-start",
   },
-
   colordelfondo: {
     backgroundColor: "#ffffff",
-    width: "100%",
-    height: "100%",
-  },
-  titulo: {
-    textAlign: "left",
-    textTransform: "uppercase",
-    fontSize: 21,
-    color: "#000000",
-    marginTop: 35,
-    backgroundColor: "#000684",
-    height: 45,
-    marginHorizontal: 30,
-    borderRadius: 10, // Agrega esquinas redondeadas
-    paddingHorizontal: 15, // Añade espacio interno horizontal
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5, // Agrega sombra para efecto de volumen en Android
-  },
-
-  titulo2: {
-    textAlign: "left",
-    textTransform: "uppercase",
-    fontSize: 21,
-    color: "#000000",
-    fontWeight: "800",
-    marginTop: 15,
-    marginHorizontal: 30,
-    marginStart: 12,
-    backgroundColor: "#D75CFF",
-    height: 215,
-  },
-  backg: {
-    backgroundColor: "#ffffff",
+    flex: 1,
   },
   mid: {
     height: 60,
     width: 120,
     marginStart: 15,
-    marginTop: 5,
+    resizeMode: "contain",
+  },
+  tituloBienvenido: {
+    backgroundColor: "#000684",
+    minHeight: 48,
+    marginHorizontal: 25,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  tituloBanner: {
+    backgroundColor: "#000684",
+    minHeight: 60,
+    marginHorizontal: 25,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  backg: {
+    backgroundColor: "#ffffff",
+  },
+  mapWrapper: {
+    width: "92%",
+    height: 380,
+    alignSelf: "center",
+    marginTop: 15,
     marginBottom: 10,
-    flexDirection: "row",
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: "#E2E8F0",
+    borderWidth: 1,
+    borderColor: "#CBDCF0",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 5,
   },
-map: {
-  width: "90%", // Ajusta el ancho según tus preferencias
-  height: 400, // Ajusta la altura según tus preferencias
-  alignSelf: "center", // Para centrar el mapa
-  marginTop: 25, // Ajusta el margen superior según tus preferencias
-  marginBottom: 10, // Ajusta el margen inferior según tus preferencias
-  marginHorizontal: "5%", // Ajusta el margen horizontal según tus preferencias
-},
-
-  currentLocationMarker: {
-    width: 10, // Ajusta el tamaño según lo necesites
-    height: 10, // Ajusta el tamaño según lo necesites
+  map: {
+    width: "100%",
+    height: "100%",
   },
-  otherMarkers: {
-    width: 10, // Ajusta el tamaño según lo necesites
-    height: 10, // Ajusta el tamaño según lo necesites
-  },
-
   subtitulo1: {
     textAlign: "center",
     textTransform: "uppercase",
-    fontSize: 19,
+    fontSize: 18,
     color: "#ffffff",
-    fontWeight: "900",
-    marginTop: 10,
+    fontWeight: "bold",
+    letterSpacing: 1,
   },
-
   subtitulo11: {
     textAlign: "center",
     textTransform: "uppercase",
-    fontSize: 14,
+    fontSize: 13,
     color: "#ffffff",
-    fontWeight: "900",
-    marginTop: 6,
+    fontWeight: "bold",
+    lineHeight: 18,
   },
-
   subtitulo2: {
     textAlign: "center",
     fontSize: 13,
-    marginTop: 5,
+    color: "#E0E0E0",
+    marginTop: 3,
   },
-
-  subtitulo3: {
-    textAlign: "center",
-    textTransform: "uppercase",
-    fontSize: 15,
-    color: "#000000",
-    fontWeight: "700",
-    marginTop: 40,
-    marginBottom: -65,
-  },
-  picker: {
-    flex: 1,
-    alignContent: "center",
-  },
-
-  containerflex: {
+  whaty: {
+    marginVertical: 12,
     alignItems: "center",
-    justifyContent: "center",
-    flex: 1,
-    //backgroundColor: 'yellow',
+  },
+  botonwhat: {
+    backgroundColor: "#25D366",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  whatsappContainer: {
     flexDirection: "row",
-    marginTop: 20,
-    marginBottom: 60,
-
-  },
-
-  contenedorMarco: {
-    margin: 10,
-    borderWidth: 3,
-    borderColor: '#000000',
-    padding: 10,
-    justifyContent: 'center', // Centrar horizontalmente el contenido
-  },
-  
-
-  derechaflex: {
-    justifyContent: "center",
-    flex: 1,
-    backgroundColor: "#ffffff",
     alignItems: "center",
-
   },
-
-  izquierdaflex: {
-    justifyContent: "center",
-    flex: 1,
-    backgroundColor: "#ffffff",
-    alignItems: "center",
-    justifyContent: 'center', // Centrar horizontalmente el contenido
-
+  subtitulowhats: {
+    color: "#FFFFFF",
+    fontWeight: "bold",
+    fontSize: 13,
   },
-
   flexIcon: {
     flexDirection: "row",
-    justifyContent: "space-around", // Esto distribuirá los elementos equitativamente
+    justifyContent: "space-around",
     alignItems: "center",
     backgroundColor: "#ffffff",
-    marginTop: 45, // Puedes ajustar el margen superior según tus preferencias
+    marginTop: 25,
+    marginBottom: 10,
   },
-
   imageContainer: {
-    flex: 1, // Esto permite que cada imagen ocupe la misma cantidad de espacio
+    flex: 1,
     alignItems: "center",
   },
-
   imageNav: {
-    height: 80,
-    width: 80,
-    justifyContent: "space-around",
+    height: 70,
+    width: 70,
+    resizeMode: "contain",
   },
-
-  imagen: {
-    height: 120,
-    width: 120,
-    marginTop: 20,
-  },
-
-  imagenCC: {
-    height: 15,
-    width: 15,
-    marginTop: 20,
-  },
-  
-
   calidadCalid: {
     textAlign: "center",
     fontSize: 15,
     color: "#0056BD",
     fontWeight: "600",
-    marginTop: 10,
-    marginBottom: 15,
+    marginTop: 15,
+    marginBottom: 25,
   },
-calidadCalid2: {
-    textAlign: "center",
-    fontSize: 22,
-    color: "#0056BD",
+  contaComp: {
+    marginTop: 20,
+  },
+  promoBannerHome: {
+    marginHorizontal: 16,
+    marginTop: 15,
+    marginBottom: 5,
+    padding: 14,
+    backgroundColor: "#F0F4FA",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#D2E0F2",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    shadowColor: "#000684",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  promoBannerLeft: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  promoTagHome: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#FF3B30",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 5,
+    marginBottom: 4,
+  },
+  promoTagHomeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "bold",
+    letterSpacing: 0.5,
+  },
+  promoTitleHome: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#000684",
+  },
+  promoSubHome: {
+    fontSize: 12,
+    color: "#4A5568",
+    marginTop: 2,
+  },
+  promoIconRight: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#D2E0F2",
+  },
+
+  // CHIPS SELECTOR DE SUCURSALES
+  branchChipsScroll: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  branchChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0F4FA",
+    borderWidth: 1,
+    borderColor: "#CBDCF0",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  branchChipActive: {
+    backgroundColor: "#000684",
+    borderColor: "#000684",
+  },
+  branchChipText: {
+    fontSize: 12,
     fontWeight: "600",
-    marginTop: 17,
-    textShadowColor: "#000",         // Color de la sombra
-    textShadowRadius: 25,            // Radio de la sombra (difuminado)
+    color: "#000684",
   },
-  boton: {
-    borderRadius: 5, // Agrega esquinas redondeadas
-    paddingVertical: 8, // Ajusta el tamaño vertical del botón
+  branchChipTextActive: {
+    color: "#FFFFFF",
+    fontWeight: "bold",
+  },
+
+  // TARJETA DE SUCURSAL SELECCIONADA
+  branchCard: {
+    backgroundColor: "#FFFFFF",
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+  },
+  branchCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 10,
+  },
+  branchCardTitle: {
+    fontSize: 17,
+    fontWeight: "bold",
+    color: "#0F172A",
+  },
+  branchBadgeRow: {
+    marginTop: 3,
+  },
+  branchBadge: {
+    backgroundColor: "#EEF2FF",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+  },
+  branchBadgeText: {
+    fontSize: 11,
+    color: "#000684",
+    fontWeight: "600",
+  },
+  branchCloseSelect: {
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  branchCloseSelectText: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "600",
+  },
+  branchInfoRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 6,
+  },
+  branchInfoText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#334155",
+    lineHeight: 18,
+  },
+  branchActionsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+  },
+  btnNavigate: {
+    flex: 1.2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#000684",
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  btnNavigateText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  btnCall: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F0F4FA",
+    borderWidth: 1,
+    borderColor: "#CBDCF0",
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  btnCallText: {
+    color: "#000684",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  btnBranchWhatsApp: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor: "#25D366",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  // MODAL SUCURSALES
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+  },
+  modalSucursalContent: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 20,
+    paddingBottom: 28,
+    maxHeight: "85%",
+  },
+  modalSucursalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+  modalSucursalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#000684",
+  },
+  modalSucursalSub: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  sucursalModalItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+  },
+  sucursalModalItemActive: {
+    borderColor: "#000684",
+    backgroundColor: "#EEF2FF",
+  },
+  sucursalItemIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  sucursalItemTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#0F172A",
+    marginRight: 6,
+  },
+  sucursalItemBadge: {
+    backgroundColor: "#E2E8F0",
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  sucursalItemBadgeText: {
+    fontSize: 10,
+    color: "#475569",
+    fontWeight: "600",
+  },
+  sucursalItemAddress: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  sucursalItemHours: {
+    fontSize: 11,
+    color: "#000684",
+    marginTop: 3,
+  },
+  btnVerTodasModal: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    backgroundColor: "#F0F4FA",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#CBDCF0",
+    marginTop: 6,
+  },
+  btnVerTodasModalText: {
+    color: "#000684",
+    fontSize: 13,
+    fontWeight: "bold",
   },
 });
 

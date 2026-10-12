@@ -1,28 +1,15 @@
-import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import * as React from "react";
-import { initializeApp } from "firebase/app";
-import { firebase } from "@react-native-firebase/auth";
-
 import { NavigationContainer } from "@react-navigation/native";
-import {
-  BottomTabBar,
-  createBottomTabNavigator,
-} from "@react-navigation/bottom-tabs";
-import HomeScreen from "./screens/HomeScreen";
-import ProfileScreen from "./screens/ProfileScreen";
-import Settings from "./screens/Settings";
 import { createStackNavigator } from "@react-navigation/stack";
-import Prueba from "./screens/Prueba";
-import HistorialStudio from "./screens/HistorialStudio";
-import DatosPer from "./screens/DatosPer";
-import { Login } from "./screens/Login";
-import CrearCuenta from "./screens/CrearCuenta";
-import { ApolloClient, useQuery, gql } from "@apollo/client";
-import { ApolloProvider, InMemoryCache } from "@apollo/client";
-import Notificaciones from "./screens/Notificaciones";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { initializeApp } from "firebase/app";
+import { ApolloProvider } from "@apollo/client";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import client from "./config/apollo";
+
+import HomeScreen from "./screens/HomeScreen";
+import HistorialStudio from "./screens/HistorialStudio";
 import AnalisisClinicos from "./screens/Products/AnalisisClinicos";
 import Cardiologia from "./screens/Products/Cardiologia";
 import Colonscopia from "./screens/Products/Colposcopia";
@@ -34,14 +21,18 @@ import RayosX from "./screens/Products/RayosX";
 import RayosxContrastados from "./screens/Products/RayosxContrastados";
 import ResonanciaMagnetica from "./screens/Products/ResonanciaMagnetica";
 import TomogrMultic from "./screens/Products/TomogrMultic";
+import ProfileScreen from "./screens/ProfileScreen";
+import Settings from "./screens/Settings";
+import CrearCuenta from "./screens/CrearCuenta";
+import DatosPer from "./screens/DatosPer";
+import TiendaScreen from "./screens/TiendaScreen";
 import UltrasonConDop from "./screens/Products/UltrasonConDop";
-import { Ionicons } from "@expo/vector-icons"; // Importa el conjunto de iconos que desees utilizar
+import { Ionicons } from "@expo/vector-icons";
 import AllProducts from "./screens/Products/AllProducts";
 import PromoDesc from "./screens/PromoDesc";
 import RestablecerContra from "./screens/RestablecerContra";
 import * as Notifications from "expo-notifications";
 
-// Configurar el cliente de Firebase Messaging
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -72,7 +63,7 @@ function MyStack() {
           options={{
             headerShown: false,
             headerBackTitleVisible: false,
-            headerTitle: null, // Agrega esta línea para ocultar el título en la barra superior
+            headerTitle: null,
           }}
         />
 
@@ -81,8 +72,7 @@ function MyStack() {
           component={HistorialStudio}
           options={{
             headerBackTitleVisible: false,
-            title: 'Historial de Estudios', // Cambia el título aquí
-
+            title: 'Historial de Estudios',
           }}
         />
 
@@ -229,51 +219,42 @@ function MyStack() {
 const Tab = createBottomTabNavigator();
 
 function App() {
-  useEffect(() => {
-    (async () => {
-      // Solicitar permiso para mostrar notificaciones
-      const { status: existingStatus } = await Permissions.getAsync(
-        Permissions.NOTIFICATIONS
-      );
-      let finalStatus = existingStatus;
-      if (existingStatus !== "granted") {
-        const { status } = await Permissions.askAsync(
-          Permissions.NOTIFICATIONS
-        );
-        finalStatus = status;
-      }
-      if (finalStatus !== "granted") {
-        alert(
-          "Para recibir notificaciones, necesitas permitir los permisos en la configuración de tu dispositivo."
-        );
-        return;
-      }
-    })();
-  }, []);
+  const [userToken, setUserToken] = useState(null);
 
   useEffect(() => {
     registerForPushNotificationsAsync();
   }, []);
 
+  useEffect(() => {
+    const checkToken = async () => {
+      try {
+        const storedToken = await AsyncStorage.getItem("token");
+        setUserToken(storedToken);
+      } catch (err) {
+        console.log("Error al consultar token de sesion:", err);
+      }
+    };
+    checkToken();
+    const interval = setInterval(checkToken, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
   const registerForPushNotificationsAsync = async () => {
-    const { status: existingStatus } = await Permissions.getAsync(
-      Permissions.NOTIFICATIONS
-    );
-
-    let finalStatus = existingStatus;
-    if (existingStatus !== "granted") {
-      const { status } = await Permissions.askAsync(Permissions.NOTIFICATIONS);
-      finalStatus = status;
+    try {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== "granted") {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== "granted") {
+        return;
+      }
+      const tokenData = await Notifications.getExpoPushTokenAsync();
+      console.log("Expo Push Token:", tokenData.data);
+    } catch (err) {
+      console.log("Notificaciones no configuradas en entorno local:", err.message);
     }
-
-    if (finalStatus !== "granted") {
-      alert("Permiso para recibir notificaciones no concedido");
-      return;
-    }
-
-    // Obtener el token de notificación del dispositivo
-    const token = (await Notifications.getExpoPushTokenAsync()).data;
-    console.log(token);
   };
 
   return (
@@ -284,42 +265,47 @@ function App() {
           screenOptions={({ route }) => ({
             tabBarIcon: ({ color, size }) => {
               let iconName;
-
               if (route.name === "Inicio") {
                 iconName = "home";
+              } else if (route.name === "Tienda") {
+                iconName = "cart-sharp";
               } else if (route.name === "Perfil") {
                 iconName = "person-sharp";
               } else if (route.name === "Configuracion") {
-                iconName = "settings";
+                iconName = userToken ? "settings" : "log-in";
               }
               return <Ionicons name={iconName} size={size} color={color} />;
             },
             headerShown: false,
+            tabBarActiveTintColor: "#000066",
+            tabBarInactiveTintColor: "#ffffff",
+            tabBarActiveBackgroundColor: "#E7E7E7",
+            tabBarInactiveBackgroundColor: "#000066",
           })}
-          tabBarOptions={{
-            inactiveTintColor: "#ffffff",
-            activeTintColor: "#000066",
-            activeBackgroundColor: "#E7E7E7",
-            inactiveBackgroundColor: "#000066",
-            style: {
-              display: "flex",
-            },
-          }}
         >
           <Tab.Screen
             name="Inicio"
             component={MyStack}
             listeners={({ navigation }) => ({
               tabPress: (e) => {
-                // Evitar el comportamiento predeterminado
                 e.preventDefault();
-                // Reiniciar la pantalla HomeScreen si ya está en la pestaña "Inicio"
                 navigation.navigate("InicioScreen", { screen: "HomeScreen" });
               },
             })}
           />
+          
+          {userToken ? (
+            <Tab.Screen name="Tienda" component={TiendaScreen} />
+          ) : null}
+
           <Tab.Screen name="Perfil" component={ProfileScreen} />
-          <Tab.Screen name="Configuracion" component={Settings} />
+          <Tab.Screen
+            name="Configuracion"
+            component={Settings}
+            options={{
+              tabBarLabel: userToken ? "Configuración" : "Iniciar Sesión",
+            }}
+          />
         </Tab.Navigator>
       </NavigationContainer>
     </ApolloProvider>

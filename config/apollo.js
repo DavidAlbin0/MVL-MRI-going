@@ -6,9 +6,9 @@ import { onError } from '@apollo/client/link/error';
 const httpLink = createHttpLink({
 
   //Imagen medica
-  uri: 'http://mrimagenc.ddns.net:4000/graphql', 
+  //uri: 'http://mrimagenc.ddns.net:4000/graphql', 
   //Sacmag (Cada tanto se debe de cambiar)
-  //uri: 'http://10.121.1.8:4000/graphql',
+  uri: 'http://192.168.0.124:4000/graphql',
   //Casa
   //uri: 'http://192.168.0.200:4000/graphql',
   //MRI Visitantes (Se debe de cambiar)
