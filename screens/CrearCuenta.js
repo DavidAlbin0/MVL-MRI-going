@@ -1,20 +1,21 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   SafeAreaView,
   StyleSheet,
   Text,
   View,
   TextInput,
-  Button,
-  Image,
   TouchableOpacity,
+  Image,
   ScrollView,
-  Modal
+  Modal,
+  StatusBar,
+  ActivityIndicator,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { gql, useMutation, useLazyQuery } from "@apollo/client";
 import { useNavigation } from "@react-navigation/native";
-import { MaterialIcons, Ionicons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 
 const CREAR_USUARIO = gql`
   mutation crearUsuario($input: UsuarioInput) {
@@ -97,43 +98,52 @@ const REGEX_CURP = /^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/;
 const REGEX_EMAIL = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 const limpiaSoloLetras = (texto) => {
-  return texto.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, "");
+  return texto ? texto.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, "") : "";
 };
 
 const extraeFechaDeCurp = (curpStr) => {
-  if (curpStr && curpStr.length === 18) {
+  if (curpStr && curpStr.length >= 10) {
     const aa = curpStr.substring(4, 6);
     const mm = curpStr.substring(6, 8);
     const dd = curpStr.substring(8, 10);
     const anio = parseInt(aa, 10) > 30 ? `19${aa}` : `20${aa}`;
     const fecha = `${anio}-${mm}-${dd}`;
     if (!isNaN(Date.parse(fecha))) {
-      return fecha;
+      return { fecha, anio, mes: mm, dia: dd };
     }
   }
-  return "1990-01-01";
+  return { fecha: "1995-05-15", anio: "1995", mes: "05", dia: "15" };
+};
+
+const extraeSexoDeCurp = (curpStr) => {
+  if (curpStr && curpStr.length >= 11) {
+    const s = curpStr.charAt(10).toUpperCase();
+    return s === "M" ? "Mujer" : "Hombre";
+  }
+  return "Hombre";
 };
 
 const CrearCuenta = () => {
   const navigation = useNavigation();
-  const [curp, setCurp] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [errora, setError] = useState("");
-  const [mensaje, setMensaje] = useState("");
-  const [datosObtenidos, setDatosObtenidos] = useState(false);
-  const [esPacienteExistente, setEsPacienteExistente] = useState(false);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
+
+  // Paso del flujo (1 = Consulta de CURP, 2 = Formulario completo)
+  const [paso, setPaso] = useState(1);
+  const [curpInput, setCurpInput] = useState("");
+  const [errorCurp, setErrorCurp] = useState("");
+  const [errorForm, setErrorForm] = useState("");
+
+  // Modal informativo para cuando el CURP NO está en MRI
+  const [modalNoEncontrado, setModalNoEncontrado] = useState(false);
+  const [esPacienteEncontrado, setEsPacienteEncontrado] = useState(false);
   const [cuentaCreadaExitosa, setCuentaCreadaExitosa] = useState(false);
 
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [mostrarPassword, setMostrarPassword] = useState(false);
-  const [mostrarConfirmPassword, setMostrarConfirmPassword] = useState(false);
-
+  // Selector de fecha
   const [modalFechaVisible, setModalFechaVisible] = useState(false);
   const [diaSel, setDiaSel] = useState("15");
   const [mesSel, setMesSel] = useState("05");
   const [anioSel, setAnioSel] = useState("1995");
 
+  // Campos de formulario
   const [input, setInput] = useState({
     curp: "",
     email: "",
@@ -142,220 +152,269 @@ const CrearCuenta = () => {
     nombre: "",
     apellidoPaterno: "",
     apellidoMaterno: "",
-    fechaNacimiento: "",
+    fechaNacimiento: "1995-05-15",
     entidadFederativaNacimiento: "Morelos",
     sexo: "Hombre",
   });
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [mostrarPassword, setMostrarPassword] = useState(false);
+  const [mostrarConfirm, setMostrarConfirm] = useState(false);
 
+  // GraphQL
+  const [creacionPorCurp, { loading: validandoCurp }] = useLazyQuery(CREACION_POR_CURP, {
+    fetchPolicy: "network-only",
+  });
+  const [crearUsuario, { loading: guardandoUsuario }] = useMutation(CREAR_USUARIO);
+
+  // Actualizar selector de fecha
   const updateFechaLive = (d, m, a) => {
     setDiaSel(d);
     setMesSel(m);
     setAnioSel(a);
-    const fechaFormateada = `${a}-${m}-${d}`;
-    setInput((prev) => ({ ...prev, fechaNacimiento: fechaFormateada }));
+    setInput((prev) => ({ ...prev, fechaNacimiento: `${a}-${m}-${d}` }));
   };
 
-  const [crearUsuario] = useMutation(CREAR_USUARIO);
-  const [creacionPorCurp, { loading: queryLoading, error, data }] = useLazyQuery(CREACION_POR_CURP);
+  // PASO 1: Validar CURP
+  const handleConsultarCurp = async () => {
+    setErrorCurp("");
+    const curpLimpio = curpInput.trim().toUpperCase();
 
-  useEffect(() => {
-    if (!queryLoading && hasSubmitted) {
-      setLoading(false);
-      if (data && data.creacionPorCurp) {
-        const info = data.creacionPorCurp;
-        setEsPacienteExistente(true);
-        setDatosObtenidos(true);
-        const f = info.fecnac_Pac || extraeFechaDeCurp(info.curp || curp);
-        setInput((prev) => ({
-          ...prev,
-          curp: info.curp || curp,
-          nombre: limpiaSoloLetras(info.nombre_pac || ""),
-          apellidoPaterno: limpiaSoloLetras(info.apat_Pac || ""),
-          apellidoMaterno: limpiaSoloLetras(info.amat_Pac || ""),
-          fechaNacimiento: f,
-          entidadFederativaNacimiento: info.entidad_nacimiento || "Morelos",
-          sexo: info.sexo_Pac === "F" || info.sexo_Pac === "Mujer" ? "Mujer" : "Hombre",
-          email: info.correo_Pac || prev.email,
-        }));
-
-        if (f && f.length === 10) {
-          const p = f.split("-");
-          if (p.length === 3) {
-            setAnioSel(p[0]);
-            setMesSel(p[1]);
-            setDiaSel(p[2]);
-          }
-        }
-        setMensaje("¡Paciente encontrado en Imagen Médica MRI! Revisa tus datos y completa tu cuenta.");
-      } else {
-        setEsPacienteExistente(false);
-        setDatosObtenidos(true);
-        const f = extraeFechaDeCurp(curp);
-        setInput((prev) => ({
-          ...prev,
-          curp: curp,
-          fechaNacimiento: f,
-        }));
-        if (f && f.length === 10) {
-          const p = f.split("-");
-          if (p.length === 3) {
-            setAnioSel(p[0]);
-            setMesSel(p[1]);
-            setDiaSel(p[2]);
-          }
-        }
-        setMensaje(
-          "Tu CURP no está registrado aún en nuestras sucursales, pero puedes ingresar tus datos y crear tu cuenta ahora."
-        );
-      }
-    }
-  }, [queryLoading, data, hasSubmitted]);
-
-  const verificarCurp = () => {
-    const curpLimpio = curp.trim().toUpperCase();
     if (curpLimpio.length !== 18) {
-      setError("El CURP debe tener exactamente 18 caracteres.");
+      setErrorCurp("El CURP debe contener exactamente 18 caracteres.");
       return;
     }
+
     if (!REGEX_CURP.test(curpLimpio)) {
-      setError("El CURP no coincide con el formato oficial mexicano (Ej: ALGD981010HMOBLA01).");
+      setErrorCurp("El formato del CURP no es válido. Verifica las letras y números.");
       return;
     }
-    setLoading(true);
-    setHasSubmitted(true);
-    setError("");
-    setMensaje("");
-    creacionPorCurp({ variables: { curp: curpLimpio } });
-  };
-
-  const confirmarFechaPicker = () => {
-    const fechaFormateada = `${anioSel}-${mesSel}-${diaSel}`;
-    setInput((prev) => ({ ...prev, fechaNacimiento: fechaFormateada }));
-    setModalFechaVisible(false);
-  };
-
-  const handleCrearUsuario = async () => {
-    const emailTrimmed = (input.email || "").trim();
-    const passwordTrimmed = (input.password || "").trim();
-    const confirmPasswordTrimmed = (confirmPassword || "").trim();
-    const usernameTrimmed = (input.username || "").trim();
-    const nombreTrimmed = limpiaSoloLetras(input.nombre || "").trim();
-    const apellidoPaternoTrimmed = limpiaSoloLetras(input.apellidoPaterno || "").trim();
-    const apellidoMaternoTrimmed = limpiaSoloLetras(input.apellidoMaterno || "").trim();
-    const curpTrimmed = (input.curp || curp || "").trim().toUpperCase();
-
-    if (!emailTrimmed || !passwordTrimmed || !usernameTrimmed || !nombreTrimmed || !apellidoPaternoTrimmed) {
-      setError("Por favor llena todos los campos obligatorios (*).");
-      return;
-    }
-
-    if (curpTrimmed && !REGEX_CURP.test(curpTrimmed)) {
-      setError("El CURP no coincide con la estructura oficial mexicana (18 caracteres).");
-      return;
-    }
-
-    if (!REGEX_EMAIL.test(emailTrimmed)) {
-      setError("Por favor ingresa un correo electrónico válido (ejemplo: usuario@correo.com).");
-      return;
-    }
-
-    if (passwordTrimmed.length <= 6) {
-      setError("La contraseña debe tener más de 6 caracteres.");
-      return;
-    }
-
-    if (passwordTrimmed !== confirmPasswordTrimmed) {
-      setError("Las contraseñas no coinciden. Por favor verifícalas.");
-      return;
-    }
-
-    let fechaFinal = (input.fechaNacimiento || "").trim();
-    if (!fechaFinal || fechaFinal === "Invalid date" || isNaN(Date.parse(fechaFinal))) {
-      fechaFinal = extraeFechaDeCurp(curpTrimmed);
-    }
-
-    const payload = {
-      curp: curpTrimmed || `TEMP-${Date.now()}`,
-      email: emailTrimmed,
-      username: usernameTrimmed,
-      password: passwordTrimmed,
-      nombre: nombreTrimmed,
-      apellidoPaterno: apellidoPaternoTrimmed,
-      apellidoMaterno: apellidoMaternoTrimmed,
-      fechaNacimiento: fechaFinal,
-      entidadFederativaNacimiento: input.entidadFederativaNacimiento || "Morelos",
-      sexo: input.sexo || "Hombre",
-    };
 
     try {
-      setError("");
+      const { data } = await creacionPorCurp({ variables: { curp: curpLimpio } });
+
+      if (data && data.creacionPorCurp) {
+        // Caso A: Paciente encontrado con expediente en MRI
+        const pac = data.creacionPorCurp;
+        setEsPacienteEncontrado(true);
+
+        const fechaObj = extraeFechaDeCurp(pac.curp || curpLimpio);
+        setDiaSel(fechaObj.dia);
+        setMesSel(fechaObj.mes);
+        setAnioSel(fechaObj.anio);
+
+        setInput((prev) => ({
+          ...prev,
+          curp: pac.curp || curpLimpio,
+          nombre: limpiaSoloLetras(pac.nombre_pac || ""),
+          apellidoPaterno: limpiaSoloLetras(pac.apat_Pac || ""),
+          apellidoMaterno: limpiaSoloLetras(pac.amat_Pac || ""),
+          fechaNacimiento: pac.fecnac_Pac || fechaObj.fecha,
+          sexo: pac.sexo_Pac === "F" || pac.sexo_Pac === "Mujer" ? "Mujer" : "Hombre",
+          entidadFederativaNacimiento: pac.entidad_nacimiento || "Morelos",
+          email: pac.correo_Pac || prev.email,
+        }));
+
+        setPaso(2);
+      } else {
+        // Caso B: Paciente NO encontrado en MRI -> Mostrar mensaje explicativo
+        setEsPacienteEncontrado(false);
+        const fechaObj = extraeFechaDeCurp(curpLimpio);
+        setDiaSel(fechaObj.dia);
+        setMesSel(fechaObj.mes);
+        setAnioSel(fechaObj.anio);
+
+        setInput((prev) => ({
+          ...prev,
+          curp: curpLimpio,
+          fechaNacimiento: fechaObj.fecha,
+          sexo: extraeSexoDeCurp(curpLimpio),
+        }));
+
+        setModalNoEncontrado(true);
+      }
+    } catch (err) {
+      console.log("Error al consultar CURP:", err);
+      // Si ocurre error de red o similar, permitimos continuar
+      setEsPacienteEncontrado(false);
+      setInput((prev) => ({ ...prev, curp: curpLimpio }));
+      setModalNoEncontrado(true);
+    }
+  };
+
+  // PASO 2: Confirmar y crear usuario
+  const handleCrearUsuario = async () => {
+    setErrorForm("");
+    const emailTrim = (input.email || "").trim().toLowerCase();
+    const passTrim = (input.password || "").trim();
+    const confirmPassTrim = (confirmPassword || "").trim();
+    const userTrim = (input.username || "").trim();
+    const nombreTrim = limpiaSoloLetras(input.nombre || "").trim();
+    const apatTrim = limpiaSoloLetras(input.apellidoPaterno || "").trim();
+    const amatTrim = limpiaSoloLetras(input.apellidoMaterno || "").trim();
+    const curpTrim = (input.curp || curpInput || "").trim().toUpperCase();
+
+    if (!nombreTrim || !apatTrim || !userTrim || !emailTrim || !passTrim) {
+      setErrorForm("Por favor completa todos los campos requeridos (*).");
+      return;
+    }
+
+    if (!REGEX_EMAIL.test(emailTrim)) {
+      setErrorForm("El formato de correo electrónico no es válido.");
+      return;
+    }
+
+    if (passTrim.length < 6) {
+      setErrorForm("La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
+    if (passTrim !== confirmPassTrim) {
+      setErrorForm("Las contraseñas no coinciden. Por favor verifícalas.");
+      return;
+    }
+
+    try {
+      const payload = {
+        curp: curpTrim,
+        nombre: nombreTrim,
+        apellidoPaterno: apatTrim,
+        apellidoMaterno: amatTrim,
+        username: userTrim,
+        email: emailTrim,
+        password: passTrim,
+        fechaNacimiento: input.fechaNacimiento,
+        entidadFederativaNacimiento: input.entidadFederativaNacimiento,
+        sexo: input.sexo,
+      };
+
       const { data } = await crearUsuario({
         variables: { input: payload },
       });
 
       if (data && data.crearUsuario) {
         setCuentaCreadaExitosa(true);
-        setTimeout(() => {
-          setCuentaCreadaExitosa(false);
-          navigation.navigate("Configuracion");
-        }, 2200);
       }
     } catch (err) {
-      console.error("Error al crear usuario:", err);
+      console.error("Error al crear cuenta:", err);
       const msg = err.graphQLErrors?.[0]?.message || err.message;
-      setError(msg || "No se pudo crear el usuario. Verifica que el correo o usuario no existan ya.");
+      if (msg && msg.toLowerCase().includes("registrado")) {
+        setErrorForm("Este correo o CURP ya tiene una cuenta registrada. Intenta iniciar sesión.");
+      } else {
+        setErrorForm(msg || "No se pudo registrar la cuenta. Verifica que los datos no estén duplicados.");
+      }
     }
   };
 
   return (
-    <SafeAreaView style={styles.background}>
-      <Modal
-        visible={cuentaCreadaExitosa}
-        transparent={true}
-        animationType="fade"
-      >
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#000684" />
+
+      {/* HEADER SUPERIOR CON BOTÓN DE REGRESO */}
+      <View style={styles.topHeader}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => {
+            if (paso === 2) {
+              setPaso(1);
+            } else {
+              navigation.goBack();
+            }
+          }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <Text style={styles.topHeaderTitle}>Crear Cuenta</Text>
+          <Text style={styles.topHeaderSub}>
+            {paso === 1 ? "Paso 1: Validación de CURP" : "Paso 2: Datos de Registro"}
+          </Text>
+        </View>
+      </View>
+
+      {/* MODAL 1: AVISO CUANDO EL CURP NO ESTÁ EN MRI */}
+      <Modal visible={modalNoEncontrado} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <MaterialIcons name="check-circle" size={80} color="#137333" style={{ alignSelf: "center", marginBottom: 15 }} />
-            <Text style={styles.exitoTitulo}>¡CUENTA CREADA!</Text>
-            <Text style={styles.exitoSubtitulo}>
-              Tu cuenta se ha registrado exitosamente en Imagen Médica MRI.
-            </Text>
-            <Text style={styles.exitoDetalle}>
-              Redirigiendo al inicio de sesión...
-            </Text>
-            <View style={{ marginTop: 20, width: "100%" }}>
-              <Button
-                title="Iniciar Sesión Ahora"
-                color="#000684"
-                onPress={() => {
-                  setCuentaCreadaExitosa(false);
-                  navigation.navigate("Configuracion");
-                }}
-              />
+            <View style={[styles.modalIconBox, { backgroundColor: "#EFF6FF" }]}>
+              <Ionicons name="information-circle" size={48} color="#0056BD" />
             </View>
+            <Text style={styles.modalCardTitle}>Aún no estás en Imagen Médica MRI</Text>
+            <Text style={styles.modalCardBody}>
+              No encontramos un expediente previo vinculado a este CURP en nuestro sistema clínico.
+            </Text>
+            <View style={styles.modalNoteBox}>
+              <Ionicons name="shield-checkmark-outline" size={18} color="#000684" style={{ marginRight: 6 }} />
+              <Text style={styles.modalNoteText}>
+                ¡Puedes crear tu cuenta ahora mismo! En cuanto te realices un estudio en cualquiera de nuestras sucursales, tus resultados, imágenes y recetas aparecerán automáticamente vinculados a tu cuenta.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.modalPrimaryBtn}
+              onPress={() => {
+                setModalNoEncontrado(false);
+                setPaso(2);
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.modalPrimaryBtnText}>Continuar con mi Registro</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalSecondaryBtn}
+              onPress={() => setModalNoEncontrado(false)}
+            >
+              <Text style={styles.modalSecondaryBtnText}>Corregir CURP</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
+      {/* MODAL 2: ÉXITO AL REGISTRAR CUENTA */}
+      <Modal visible={cuentaCreadaExitosa} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={[styles.modalIconBox, { backgroundColor: "#F0FDF4" }]}>
+              <Ionicons name="checkmark-circle" size={54} color="#15803D" />
+            </View>
+            <Text style={styles.modalCardTitle}>¡Cuenta Creada Exitosamente!</Text>
+            <Text style={styles.modalCardBody}>
+              Tu cuenta ha quedado registrada en Imagen Médica MRI. Ahora puedes iniciar sesión con tu correo y contraseña.
+            </Text>
+            <TouchableOpacity
+              style={styles.modalPrimaryBtn}
+              onPress={() => {
+                setCuentaCreadaExitosa(false);
+                navigation.navigate("Configuracion");
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.modalPrimaryBtnText}>Iniciar Sesión Ahora</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL 3: SELECTOR DE FECHA DE NACIMIENTO */}
       <Modal visible={modalFechaVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCardDatePicker}>
-            <Text style={styles.modalTitlePicker}>📅 Selecciona tu Fecha de Nacimiento</Text>
-            
-            <View style={styles.livePreviewCard}>
-              <Text style={styles.livePreviewLabel}>Fecha Seleccionada:</Text>
-              <Text style={styles.livePreviewValue}>
-                {diaSel} / {MESES.find((m) => m.value === mesSel)?.label.split(" ")[0]} / {anioSel}
-              </Text>
-              <Text style={styles.livePreviewSub}>
-                Formato: {anioSel}-{mesSel}-{diaSel}
+          <View style={styles.modalDatePickerCard}>
+            <View style={styles.modalPickerHeader}>
+              <Text style={styles.modalPickerTitle}>Fecha de Nacimiento</Text>
+              <TouchableOpacity onPress={() => setModalFechaVisible(false)}>
+                <Ionicons name="close-circle" size={24} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.liveDatePreview}>
+              <Text style={styles.liveDateLabel}>Selección actual:</Text>
+              <Text style={styles.liveDateValue}>
+                {diaSel} de {MESES.find((m) => m.value === mesSel)?.label.split(" ")[0]} de {anioSel}
               </Text>
             </View>
 
             <View style={styles.pickerRow}>
               <View style={styles.pickerCol}>
-                <Text style={styles.pickerLabelHeader}>Día</Text>
+                <Text style={styles.pickerColLabel}>Día</Text>
                 <Picker
                   selectedValue={diaSel}
                   onValueChange={(val) => updateFechaLive(val, mesSel, anioSel)}
@@ -367,8 +426,8 @@ const CrearCuenta = () => {
                 </Picker>
               </View>
 
-              <View style={styles.pickerCol}>
-                <Text style={styles.pickerLabelHeader}>Mes</Text>
+              <View style={[styles.pickerCol, { flex: 1.4 }]}>
+                <Text style={styles.pickerColLabel}>Mes</Text>
                 <Picker
                   selectedValue={mesSel}
                   onValueChange={(val) => updateFechaLive(diaSel, val, anioSel)}
@@ -381,7 +440,7 @@ const CrearCuenta = () => {
               </View>
 
               <View style={styles.pickerCol}>
-                <Text style={styles.pickerLabelHeader}>Año</Text>
+                <Text style={styles.pickerColLabel}>Año</Text>
                 <Picker
                   selectedValue={anioSel}
                   onValueChange={(val) => updateFechaLive(diaSel, mesSel, val)}
@@ -394,213 +453,299 @@ const CrearCuenta = () => {
               </View>
             </View>
 
-            <View style={{ marginTop: 20, width: "100%" }}>
-              <Button title="Confirmar Fecha" color="#000684" onPress={confirmarFechaPicker} />
-            </View>
+            <TouchableOpacity
+              style={styles.modalPrimaryBtn}
+              onPress={() => setModalFechaVisible(false)}
+            >
+              <Text style={styles.modalPrimaryBtnText}>Confirmar Fecha</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        <View style={{ alignItems: "center" }}>
-          <Image
-            source={require("../assets/logos/logoph.png")}
-            style={styles.imglogo}
-          />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* INDICADOR DE PASOS */}
+        <View style={styles.stepsRow}>
+          <View style={[styles.stepDot, paso >= 1 && styles.stepDotActive]}>
+            <Text style={[styles.stepDotText, paso >= 1 && styles.stepDotTextActive]}>1</Text>
+          </View>
+          <View style={[styles.stepLine, paso === 2 && styles.stepLineActive]} />
+          <View style={[styles.stepDot, paso === 2 && styles.stepDotActive]}>
+            <Text style={[styles.stepDotText, paso === 2 && styles.stepDotTextActive]}>2</Text>
+          </View>
         </View>
 
-        {!datosObtenidos ? (
-          <View style={styles.formContainerCenter}>
-            <Text style={styles.subtituloText}>Crear Cuenta en Imagen Médica</Text>
-            <Text style={styles.fieldLabel}>CURP (18 caracteres) *:</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ej. ALGD981010HMOBLA01"
-              value={curp}
-              onChangeText={(val) => setCurp(val.toUpperCase())}
-              maxLength={18}
-              autoCapitalize="characters"
-            />
-            {curp !== "" && curp.length !== 18 && (
-              <Text style={styles.errorTextInline}>
-                El CURP debe contener exactamente 18 caracteres.
-              </Text>
-            )}
-
-            {errora ? <Text style={styles.error}>{errora}</Text> : null}
-            
-            <View style={{ marginTop: 10 }}>
-              <Button
-                title={loading ? "Verificando..." : "Verificar CURP"}
-                onPress={verificarCurp}
-                color="#000684"
-                disabled={loading}
-              />
+        {paso === 1 ? (
+          /* ================= PASO 1: VERIFICAR CURP ================= */
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={[styles.iconCircle, { backgroundColor: "#EEF2FF" }]}>
+                <Ionicons name="finger-print" size={24} color="#000684" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>Identificación del Paciente</Text>
+                <Text style={styles.cardSubtitle}>
+                  Ingresa tu CURP para vincular tu historial médico o comenzar tu registro.
+                </Text>
+              </View>
             </View>
 
-            {mensaje ? <Text style={styles.infoBanner}>{mensaje}</Text> : null}
-            
-            <TouchableOpacity 
-              style={{ marginTop: 20 }}
-              onPress={() => {
-                setDatosObtenidos(true);
-                setEsPacienteExistente(false);
-                setMensaje("Registro manual de usuario");
-                setError("");
-              }}
-            >
-              <Text style={styles.linkText}>¿No tienes CURP a la mano? Continuar registro manual</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.formContainerCenter}>
-            {mensaje ? (
-              <Text style={esPacienteExistente ? styles.successBanner : styles.infoBanner}>
-                {mensaje}
-              </Text>
-            ) : null}
-
-            <View style={styles.formCard}>
-              <Text style={styles.fieldLabel}>CURP *:</Text>
+            <Text style={styles.inputLabel}>Clave CURP (18 caracteres) *</Text>
+            <View style={styles.inputBox}>
+              <Ionicons name="card-outline" size={20} color="#64748B" style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
-                value={input.curp}
-                onChangeText={(val) => setInput({ ...input, curp: val.toUpperCase() })}
-                placeholder="CURP"
+                style={[styles.textInput, { fontFamily: "monospace" }]}
+                placeholder="Ej. ALGD981010HMOBLA01"
+                placeholderTextColor="#94A3B8"
+                value={curpInput}
+                onChangeText={(val) => {
+                  setCurpInput(val.toUpperCase());
+                  if (errorCurp) setErrorCurp("");
+                }}
                 maxLength={18}
                 autoCapitalize="characters"
               />
+              <Text style={styles.charCount}>{curpInput.length}/18</Text>
+            </View>
 
-              <Text style={styles.fieldLabel}>Nombre *:</Text>
-              <TextInput
-                style={styles.input}
-                value={input.nombre}
-                onChangeText={(val) => setInput({ ...input, nombre: limpiaSoloLetras(val) })}
-                placeholder="Tu Nombre"
-                editable={!esPacienteExistente || !input.nombre}
-              />
+            {errorCurp ? (
+              <View style={styles.errorBox}>
+                <Ionicons name="alert-circle" size={18} color="#DC2626" style={{ marginRight: 8 }} />
+                <Text style={styles.errorText}>{errorCurp}</Text>
+              </View>
+            ) : null}
 
-              <Text style={styles.fieldLabel}>Apellido Paterno *:</Text>
-              <TextInput
-                style={styles.input}
-                value={input.apellidoPaterno}
-                onChangeText={(val) => setInput({ ...input, apellidoPaterno: limpiaSoloLetras(val) })}
-                placeholder="Apellido Paterno"
-                editable={!esPacienteExistente || !input.apellidoPaterno}
-              />
+            <TouchableOpacity
+              style={[styles.primaryButton, validandoCurp && styles.buttonDisabled]}
+              onPress={handleConsultarCurp}
+              disabled={validandoCurp}
+              activeOpacity={0.85}
+            >
+              {validandoCurp ? (
+                <View style={styles.btnLoadingRow}>
+                  <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.primaryButtonText}>Consultando expedientes...</Text>
+                </View>
+              ) : (
+                <View style={styles.btnLoadingRow}>
+                  <Ionicons name="search" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.primaryButtonText}>Consultar y Continuar</Text>
+                </View>
+              )}
+            </TouchableOpacity>
 
-              <Text style={styles.fieldLabel}>Apellido Materno:</Text>
-              <TextInput
-                style={styles.input}
-                value={input.apellidoMaterno}
-                onChangeText={(val) => setInput({ ...input, apellidoMaterno: limpiaSoloLetras(val) })}
-                placeholder="Apellido Materno"
-                editable={!esPacienteExistente || !input.apellidoMaterno}
-              />
-
-              <Text style={styles.fieldLabel}>Fecha de Nacimiento *:</Text>
+            <View style={styles.curpInfoNote}>
+              <Ionicons name="shield-checkmark" size={18} color="#15803D" style={{ marginRight: 8, marginTop: 1 }} />
+              <Text style={styles.curpInfoText}>
+                Si ya te has realizado estudios en Imagen Médica MRI, tus resultados se sincronizarán al verificar tu CURP.
+              </Text>
+            </View>
+          </View>
+        ) : (
+          /* ================= PASO 2: FORMULARIO DE REGISTRO ================= */
+          <View>
+            {/* BADGE DE CURP VALIDADO */}
+            <View style={styles.curpValidatedCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.curpValidatedLabel}>CURP VINCULADO</Text>
+                <Text style={styles.curpValidatedValue}>{input.curp}</Text>
+                {esPacienteEncontrado ? (
+                  <View style={styles.badgeFound}>
+                    <Ionicons name="checkmark-circle" size={12} color="#15803D" style={{ marginRight: 4 }} />
+                    <Text style={styles.badgeFoundText}>Expediente Encontrado en MRI</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.badgeFound, { backgroundColor: "#EFF6FF" }]}>
+                    <Ionicons name="person-add" size={12} color="#0056BD" style={{ marginRight: 4 }} />
+                    <Text style={[styles.badgeFoundText, { color: "#0056BD" }]}>Nuevo Paciente</Text>
+                  </View>
+                )}
+              </View>
               <TouchableOpacity
-                style={styles.datePickerButton}
+                style={styles.btnChangeCurp}
+                onPress={() => setPaso(1)}
+              >
+                <Text style={styles.btnChangeCurpText}>Cambiar</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* SECCIÓN 1: DATOS PERSONALES */}
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>1. Datos Personales</Text>
+
+              <Text style={styles.inputLabel}>Nombre(s) *</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="person-outline" size={20} color="#64748B" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Ej. David"
+                  placeholderTextColor="#94A3B8"
+                  value={input.nombre}
+                  onChangeText={(val) => setInput({ ...input, nombre: limpiaSoloLetras(val) })}
+                />
+              </View>
+
+              <View style={styles.rowTwoInputs}>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={styles.inputLabel}>Primer Apellido *</Text>
+                  <View style={styles.inputBox}>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Paterno"
+                      placeholderTextColor="#94A3B8"
+                      value={input.apellidoPaterno}
+                      onChangeText={(val) => setInput({ ...input, apellidoPaterno: limpiaSoloLetras(val) })}
+                    />
+                  </View>
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Segundo Apellido</Text>
+                  <View style={styles.inputBox}>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Materno"
+                      placeholderTextColor="#94A3B8"
+                      value={input.apellidoMaterno}
+                      onChangeText={(val) => setInput({ ...input, apellidoMaterno: limpiaSoloLetras(val) })}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              {/* SELECTOR DE SEXO */}
+              <Text style={styles.inputLabel}>Sexo Biológico *</Text>
+              <View style={styles.sexoSelectorRow}>
+                <TouchableOpacity
+                  style={[styles.sexoBtn, input.sexo === "Hombre" && styles.sexoBtnActive]}
+                  onPress={() => setInput({ ...input, sexo: "Hombre" })}
+                >
+                  <Ionicons name="male" size={18} color={input.sexo === "Hombre" ? "#000684" : "#64748B"} style={{ marginRight: 6 }} />
+                  <Text style={[styles.sexoBtnText, input.sexo === "Hombre" && styles.sexoBtnTextActive]}>Hombre</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.sexoBtn, input.sexo === "Mujer" && styles.sexoBtnActive]}
+                  onPress={() => setInput({ ...input, sexo: "Mujer" })}
+                >
+                  <Ionicons name="female" size={18} color={input.sexo === "Mujer" ? "#000684" : "#64748B"} style={{ marginRight: 6 }} />
+                  <Text style={[styles.sexoBtnText, input.sexo === "Mujer" && styles.sexoBtnTextActive]}>Mujer</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* FECHA DE NACIMIENTO */}
+              <Text style={styles.inputLabel}>Fecha de Nacimiento *</Text>
+              <TouchableOpacity
+                style={styles.dateSelectorBtn}
                 onPress={() => setModalFechaVisible(true)}
               >
-                <MaterialIcons name="calendar-today" size={20} color="#000684" style={{ marginRight: 10 }} />
-                <Text style={styles.datePickerText}>
-                  {input.fechaNacimiento ? input.fechaNacimiento : "Toca aquí para seleccionar fecha"}
-                </Text>
+                <Ionicons name="calendar-outline" size={20} color="#000684" style={{ marginRight: 10 }} />
+                <Text style={styles.dateSelectorText}>{input.fechaNacimiento}</Text>
+                <Ionicons name="create-outline" size={18} color="#64748B" style={{ marginLeft: "auto" }} />
               </TouchableOpacity>
 
-              <Text style={styles.fieldLabel}>Estado / Entidad Federativa de Nacimiento *:</Text>
-              <View style={styles.pickerContainer}>
+              {/* ENTIDAD FEDERATIVA */}
+              <Text style={styles.inputLabel}>Lugar de Nacimiento</Text>
+              <View style={styles.pickerBox}>
                 <Picker
                   selectedValue={input.entidadFederativaNacimiento}
-                  onValueChange={(itemValue) => setInput({ ...input, entidadFederativaNacimiento: itemValue })}
-                  style={styles.picker}
+                  onValueChange={(val) => setInput({ ...input, entidadFederativaNacimiento: val })}
+                  style={styles.pickerFull}
                 >
-                  {ESTADOS_MEXICO.map((estado, idx) => (
-                    <Picker.Item key={idx} label={estado} value={estado} />
+                  {ESTADOS_MEXICO.map((edo) => (
+                    <Picker.Item key={edo} label={edo} value={edo} />
                   ))}
                 </Picker>
               </View>
+            </View>
 
-              <Text style={styles.fieldLabel}>Sexo *:</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={input.sexo}
-                  onValueChange={(itemValue) => setInput({ ...input, sexo: itemValue })}
-                  style={styles.picker}
-                >
-                  <Picker.Item label="Hombre" value="Hombre" />
-                  <Picker.Item label="Mujer" value="Mujer" />
-                </Picker>
+            {/* SECCIÓN 2: CREDENCIALES DE ACCESO */}
+            <View style={[styles.card, { marginTop: 14 }]}>
+              <Text style={styles.sectionTitle}>2. Credenciales del Portal</Text>
+
+              <Text style={styles.inputLabel}>Nombre de Usuario *</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="at" size={20} color="#64748B" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Ej. david98"
+                  placeholderTextColor="#94A3B8"
+                  value={input.username}
+                  onChangeText={(val) => setInput({ ...input, username: val.toLowerCase().replace(/\s/g, "") })}
+                  autoCapitalize="none"
+                />
               </View>
 
-              <Text style={styles.fieldLabel}>Correo Electrónico *:</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="correo@ejemplo.com"
-                value={input.email}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                onChangeText={(val) => setInput({ ...input, email: val })}
-              />
-
-              <Text style={styles.fieldLabel}>Nombre de Usuario *:</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Nombre de Usuario"
-                autoCapitalize="none"
-                value={input.username}
-                onChangeText={(val) => setInput({ ...input, username: val })}
-              />
-
-              <Text style={styles.fieldLabel}>Contraseña *:</Text>
-              <View style={styles.passwordContainer}>
+              <Text style={styles.inputLabel}>Correo Electrónico *</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="mail-outline" size={20} color="#64748B" style={styles.inputIcon} />
                 <TextInput
-                  style={styles.inputPassword}
-                  placeholder="Contraseña (>6 caracteres)"
-                  secureTextEntry={!mostrarPassword}
+                  style={styles.textInput}
+                  placeholder="ejemplo@correo.com"
+                  placeholderTextColor="#94A3B8"
+                  value={input.email}
+                  onChangeText={(val) => setInput({ ...input, email: val })}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <Text style={styles.inputLabel}>Contraseña * (mínimo 6 caracteres)</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="lock-closed-outline" size={20} color="#64748B" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Crea tu contraseña"
+                  placeholderTextColor="#94A3B8"
                   value={input.password}
                   onChangeText={(val) => setInput({ ...input, password: val })}
+                  secureTextEntry={!mostrarPassword}
                 />
-                <TouchableOpacity onPress={() => setMostrarPassword(!mostrarPassword)} style={styles.eyeIcon}>
-                  <Ionicons name={mostrarPassword ? "eye" : "eye-off"} size={22} color="#666" />
+                <TouchableOpacity onPress={() => setMostrarPassword(!mostrarPassword)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name={mostrarPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748B" />
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.fieldLabel}>Confirmar Contraseña *:</Text>
-              <View style={styles.passwordContainer}>
+              <Text style={styles.inputLabel}>Confirmar Contraseña *</Text>
+              <View style={styles.inputBox}>
+                <Ionicons name="shield-checkmark-outline" size={20} color="#64748B" style={styles.inputIcon} />
                 <TextInput
-                  style={styles.inputPassword}
+                  style={styles.textInput}
                   placeholder="Repite tu contraseña"
-                  secureTextEntry={!mostrarConfirmPassword}
+                  placeholderTextColor="#94A3B8"
                   value={confirmPassword}
-                  onChangeText={(val) => setConfirmPassword(val)}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!mostrarConfirm}
                 />
-                <TouchableOpacity onPress={() => setMostrarConfirmPassword(!mostrarConfirmPassword)} style={styles.eyeIcon}>
-                  <Ionicons name={mostrarConfirmPassword ? "eye" : "eye-off"} size={22} color="#666" />
+                <TouchableOpacity onPress={() => setMostrarConfirm(!mostrarConfirm)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name={mostrarConfirm ? "eye-off-outline" : "eye-outline"} size={20} color="#64748B" />
                 </TouchableOpacity>
               </View>
 
-              {errora ? <Text style={styles.error}>{errora}</Text> : null}
+              {errorForm ? (
+                <View style={styles.errorBox}>
+                  <Ionicons name="alert-circle" size={18} color="#DC2626" style={{ marginRight: 8 }} />
+                  <Text style={styles.errorText}>{errorForm}</Text>
+                </View>
+              ) : null}
 
-              <View style={{ marginTop: 20 }}>
-                <Button
-                  title="Crear Cuenta"
-                  onPress={handleCrearUsuario}
-                  color="#000684"
-                />
-              </View>
-
-              <TouchableOpacity 
-                style={{ marginTop: 18 }} 
-                onPress={() => {
-                  setDatosObtenidos(false);
-                  setHasSubmitted(false);
-                  setMensaje("");
-                  setError("");
-                }}
+              <TouchableOpacity
+                style={[styles.primaryButton, guardandoUsuario && styles.buttonDisabled]}
+                onPress={handleCrearUsuario}
+                disabled={guardandoUsuario}
+                activeOpacity={0.85}
               >
-                <Text style={styles.linkText}>Volver a verificar CURP</Text>
+                {guardandoUsuario ? (
+                  <View style={styles.btnLoadingRow}>
+                    <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.primaryButtonText}>Registrando paciente...</Text>
+                  </View>
+                ) : (
+                  <View style={styles.btnLoadingRow}>
+                    <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.primaryButtonText}>Registrar mi Cuenta</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -611,238 +756,454 @@ const CrearCuenta = () => {
 };
 
 const styles = StyleSheet.create({
-  background: {
+  safeArea: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F4F7FB",
   },
-  imglogo: {
-    width: 130,
-    height: 65,
-    marginTop: 40,
-    marginBottom: 10,
+  topHeader: {
+    backgroundColor: "#000684",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
   },
-  formContainerCenter: {
-    paddingHorizontal: 25,
-    marginTop: 10,
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  subtituloText: {
+  topHeaderTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#000684",
-    textAlign: "center",
-    marginBottom: 20,
+    color: "#FFFFFF",
   },
-  fieldLabel: {
+  topHeaderSub: {
+    fontSize: 12,
+    color: "#93C5FD",
+    marginTop: 2,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  stepsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 12,
+  },
+  stepDot: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#E2E8F0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  stepDotActive: {
+    backgroundColor: "#000684",
+  },
+  stepDotText: {
+    fontSize: 13,
     fontWeight: "bold",
-    color: "#333",
-    marginBottom: 4,
-    marginTop: 8,
+    color: "#64748B",
   },
-  input: {
-    height: 44,
-    borderColor: "#CCC",
-    borderWidth: 1,
-    borderRadius: 6,
-    marginBottom: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "#FAFAFA",
-    fontSize: 14,
+  stepDotTextActive: {
+    color: "#FFFFFF",
   },
-  datePickerButton: {
+  stepLine: {
+    width: 60,
+    height: 3,
+    backgroundColor: "#E2E8F0",
+    marginHorizontal: 8,
+  },
+  stepLineActive: {
+    backgroundColor: "#000684",
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 18,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  cardHeader: {
     flexDirection: "row",
     alignItems: "center",
-    height: 44,
-    borderColor: "#CCC",
-    borderWidth: 1,
-    borderRadius: 6,
-    marginBottom: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "#FAFAFA",
+    marginBottom: 16,
   },
-  datePickerText: {
-    fontSize: 14,
-    color: "#333",
-    fontWeight: "500",
+  iconCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
   },
-  pickerContainer: {
-    borderColor: "#CCC",
-    borderWidth: 1,
-    borderRadius: 6,
-    marginBottom: 10,
-    backgroundColor: "#FAFAFA",
-    overflow: "hidden",
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#0F172A",
   },
-  picker: {
-    height: 44,
-    width: "100%",
+  cardSubtitle: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+    lineHeight: 16,
   },
-  passwordContainer: {
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#000684",
+    marginBottom: 8,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#334155",
+    marginBottom: 5,
+    marginTop: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+  },
+  inputBox: {
     flexDirection: "row",
     alignItems: "center",
-    borderColor: "#CCC",
+    backgroundColor: "#F8FAFC",
     borderWidth: 1,
-    borderRadius: 6,
-    marginBottom: 10,
-    backgroundColor: "#FAFAFA",
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 48,
   },
-  inputPassword: {
+  inputIcon: {
+    marginRight: 8,
+  },
+  textInput: {
     flex: 1,
-    height: 44,
-    paddingHorizontal: 12,
     fontSize: 14,
+    color: "#0F172A",
   },
-  eyeIcon: {
+  charCount: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontFamily: "monospace",
+  },
+  rowTwoInputs: {
+    flexDirection: "row",
+  },
+  sexoSelectorRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  sexoBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#F8FAFC",
+  },
+  sexoBtnActive: {
+    borderColor: "#000684",
+    backgroundColor: "#EEF2FF",
+  },
+  sexoBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+  sexoBtnTextActive: {
+    color: "#000684",
+    fontWeight: "bold",
+  },
+  dateSelectorBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
     paddingHorizontal: 12,
+    height: 48,
   },
-  formCard: {
-    width: "100%",
-  },
-  error: {
-    color: "red",
-    marginVertical: 10,
-    textAlign: "center",
+  dateSelectorText: {
+    fontSize: 14,
+    color: "#0F172A",
     fontWeight: "600",
   },
-  errorTextInline: {
-    color: "red",
+  pickerBox: {
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  pickerFull: {
+    height: 50,
+    width: "100%",
+  },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 12,
+  },
+  errorText: {
+    flex: 1,
     fontSize: 12,
-    marginBottom: 10,
+    color: "#DC2626",
+    lineHeight: 16,
   },
-  infoBanner: {
-    backgroundColor: "#E8F4FD",
-    color: "#0056BD",
+  primaryButton: {
+    backgroundColor: "#000684",
+    borderRadius: 12,
+    height: 50,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 20,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  buttonDisabled: {
+    opacity: 0.65,
+  },
+  btnLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  primaryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "bold",
+  },
+  curpInfoNote: {
+    flexDirection: "row",
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    borderRadius: 12,
     padding: 12,
-    borderRadius: 6,
-    marginVertical: 12,
-    textAlign: "center",
-    fontSize: 13,
+    marginTop: 16,
+    alignItems: "flex-start",
   },
-  successBanner: {
-    backgroundColor: "#E6F4EA",
-    color: "#137333",
-    padding: 12,
-    borderRadius: 6,
-    marginVertical: 12,
-    textAlign: "center",
-    fontSize: 13,
+  curpInfoText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#166534",
+    lineHeight: 17,
   },
-  linkText: {
-    color: "#0056BD",
-    textAlign: "center",
-    textDecorationLine: "underline",
-    fontSize: 14,
+  curpValidatedCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    borderLeftWidth: 4,
+    borderLeftColor: "#000684",
+  },
+  curpValidatedLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#94A3B8",
+    letterSpacing: 0.6,
+  },
+  curpValidatedValue: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#0F172A",
+    fontFamily: "monospace",
+    marginTop: 2,
+  },
+  badgeFound: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0FDF4",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  badgeFoundText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#15803D",
+  },
+  btnChangeCurp: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#F1F5F9",
+  },
+  btnChangeCurpText: {
+    fontSize: 12,
+    color: "#475569",
+    fontWeight: "600",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    backgroundColor: "rgba(0, 6, 132, 0.75)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: 24,
   },
   modalCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 28,
-    width: "90%",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  modalCardDatePicker: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 20,
-    width: "95%",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  modalTitlePicker: {
-    fontSize: 17,
-    fontWeight: "bold",
-    color: "#000684",
-    marginBottom: 10,
-    textAlign: "center",
-  },
-  livePreviewCard: {
-    backgroundColor: "#E8F4FD",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 15,
+    borderRadius: 22,
+    padding: 24,
     width: "100%",
-    borderColor: "#BBE0FF",
-    borderWidth: 1,
+    maxWidth: 340,
+    alignItems: "center",
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
   },
-  livePreviewLabel: {
-    fontSize: 11,
-    color: "#0056BD",
+  modalIconBox: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  modalCardTitle: {
+    fontSize: 18,
     fontWeight: "bold",
-    textTransform: "uppercase",
+    color: "#0F172A",
+    textAlign: "center",
+    marginBottom: 8,
   },
-  livePreviewValue: {
+  modalCardBody: {
+    fontSize: 13,
+    color: "#475569",
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 14,
+  },
+  modalNoteBox: {
+    flexDirection: "row",
+    backgroundColor: "#EEF2FF",
+    borderWidth: 1,
+    borderColor: "#C7D2FE",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 20,
+    alignItems: "flex-start",
+  },
+  modalNoteText: {
+    flex: 1,
+    fontSize: 11,
+    color: "#1E1B4B",
+    lineHeight: 16,
+  },
+  modalPrimaryBtn: {
+    backgroundColor: "#000684",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    width: "100%",
+    alignItems: "center",
+  },
+  modalPrimaryBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  modalSecondaryBtn: {
+    paddingVertical: 10,
+    marginTop: 8,
+  },
+  modalSecondaryBtnText: {
+    color: "#64748B",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  modalDatePickerCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 20,
+    width: "100%",
+    maxWidth: 350,
+  },
+  modalPickerHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  modalPickerTitle: {
     fontSize: 17,
     fontWeight: "bold",
-    color: "#000684",
-    marginTop: 2,
+    color: "#0F172A",
   },
-  livePreviewSub: {
+  liveDatePreview: {
+    backgroundColor: "#EEF2FF",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 14,
+    alignItems: "center",
+  },
+  liveDateLabel: {
     fontSize: 11,
-    color: "#666",
+    color: "#6366F1",
+    fontWeight: "600",
+  },
+  liveDateValue: {
+    fontSize: 14,
+    color: "#000684",
+    fontWeight: "bold",
     marginTop: 2,
   },
   pickerRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    width: "100%",
+    marginBottom: 16,
   },
   pickerCol: {
     flex: 1,
-    marginHorizontal: 2,
-    borderColor: "#DDD",
-    borderWidth: 1,
-    borderRadius: 6,
-    backgroundColor: "#F9F9F9",
-    alignItems: "center",
+    marginHorizontal: 3,
   },
-  pickerLabelHeader: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#000684",
-    marginTop: 6,
+  pickerColLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#64748B",
+    textAlign: "center",
+    marginBottom: 4,
   },
   pickerMini: {
-    height: 40,
-    width: "100%",
-  },
-  exitoTitulo: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#137333",
-    marginBottom: 10,
-    textAlign: "center",
-  },
-  exitoSubtitulo: {
-    fontSize: 15,
-    color: "#333",
-    textAlign: "center",
-    marginBottom: 8,
-    lineHeight: 22,
-  },
-  exitoDetalle: {
-    fontSize: 13,
-    color: "#666",
-    textAlign: "center",
-    fontStyle: "italic",
+    height: 120,
+    backgroundColor: "#F8FAFC",
   },
 });
 
 export default CrearCuenta;
-

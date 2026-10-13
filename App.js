@@ -56,7 +56,7 @@ const HomeStackNavigator = createStackNavigator();
 function MyStack() {
   return (
     <ApolloProvider client={client}>
-      <HomeStackNavigator.Navigator>
+      <HomeStackNavigator.Navigator screenOptions={{ headerShown: false }}>
         <HomeStackNavigator.Screen
           name="InicioScreen"
           component={HomeScreen}
@@ -71,8 +71,7 @@ function MyStack() {
           name="HistorialStudio"
           component={HistorialStudio}
           options={{
-            headerBackTitleVisible: false,
-            title: 'Historial de Estudios',
+            headerShown: false,
           }}
         />
 
@@ -208,7 +207,7 @@ function MyStack() {
           name="Datos Personales"
           component={DatosPer}
           options={{
-            headerBackTitleVisible: false,
+            headerShown: false,
           }}
         />
       </HomeStackNavigator.Navigator>
@@ -294,10 +293,6 @@ function App() {
             })}
           />
           
-          {userToken ? (
-            <Tab.Screen name="Tienda" component={TiendaScreen} />
-          ) : null}
-
           <Tab.Screen name="Perfil" component={ProfileScreen} />
           <Tab.Screen
             name="Configuracion"

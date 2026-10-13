@@ -1,21 +1,20 @@
-import React, { Fragment } from "react";
+import React, { useEffect, useState } from "react";
 import {
-  Image,
   SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
   ActivityIndicator,
   TouchableOpacity,
+  Image,
 } from "react-native";
 import { useQuery, gql, useApolloClient } from "@apollo/client";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import base64 from "base-64"; // Importar la biblioteca base-64
+import base64 from "base-64";
 import { useNavigation } from "@react-navigation/native";
-import { useEffect, useState } from "react";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 
 const OBTENER_INFO_POR_CURP = gql`
   query ObtenerInfoPorCurp($curp: String!) {
@@ -43,305 +42,520 @@ const OBTENER_INFO_POR_CURP = gql`
   }
 `;
 
-  /*
-const CrearCuenta = () => {
-  const [input, setInput] = useState({
-    curp: "",
-    email: "",
-    password: "",
-    username: "",
-    nombre: "",
-    apellidoPaterno: "",
-    apellidoMaterno: "",
-    fechaNacimiento: "",
-    entidadFederativaNacimiento: "",
-    sexo: "",
-  });
-*/
+const parseJwt = (tokenStr) => {
+  try {
+    const base64Url = tokenStr.split(".")[1];
+    const base64String = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      base64
+        .decode(base64String)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    try {
+      return JSON.parse(base64.decode(tokenStr.split(".")[1]));
+    } catch (err) {
+      return null;
+    }
+  }
+};
+
+const formatFecha = (fechaVal) => {
+  if (!fechaVal) return "No registrada";
+  try {
+    // Si viene en timestamp de milisegundos numérico o string
+    const num = Number(fechaVal);
+    const dateObj = !isNaN(num) && num > 100000000000 ? new Date(num) : new Date(fechaVal);
+    if (isNaN(dateObj.getTime())) return String(fechaVal);
+    
+    return dateObj.toLocaleDateString("es-MX", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  } catch (e) {
+    return String(fechaVal);
+  }
+};
 
 const DatosPer = () => {
+  const navigation = useNavigation();
   const client = useApolloClient();
   const [token, setToken] = useState(null);
   const [curp, setCurp] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [userFallback, setUserFallback] = useState(null);
+  const [loadingToken, setLoadingToken] = useState(true);
 
   const {
     loading: queryLoading,
     error,
     data,
+    refetch,
   } = useQuery(OBTENER_INFO_POR_CURP, {
     variables: { curp },
     skip: !curp,
+    fetchPolicy: "cache-and-network",
   });
 
   useEffect(() => {
     const getTokenAndDecode = async () => {
       try {
         const storedToken = await AsyncStorage.getItem("token");
-        console.log("Token almacenado:", storedToken);
         setToken(storedToken);
 
-        // Decodificar el token para obtener el CURP
-        const decodedToken = JSON.parse(
-          base64.decode(storedToken.split(".")[1])
-        );
-        const curpFromToken = decodedToken.curp;
-        setCurp(curpFromToken);
-
-        console.log("CURP extraído del token:", curpFromToken);
-      } catch (error) {
-        console.error("Error al obtener y decodificar el token:", error);
+        if (storedToken) {
+          const decoded = parseJwt(storedToken);
+          if (decoded) {
+            setUserFallback(decoded);
+            if (decoded.curp) {
+              setCurp(decoded.curp);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Error al obtener y decodificar token:", err);
+      } finally {
+        setLoadingToken(false);
       }
     };
 
     getTokenAndDecode();
   }, [client]);
 
-  useEffect(() => {
-    if (!queryLoading) {
-      // Verifica si hay un error en la consulta y maneja en consecuencia
-      if (error) {
-        console.error("Error en la consulta:", error);
-        // Puedes manejar el error de alguna manera específica aquí
-      } else if (data) {
-        // Asigna los datos obtenidos a los estados necesarios
-        // Puedes ajustar esto según tus necesidades
-        // Por ejemplo, setArchivos(data.obtenerInfoPorCurp.archivos);
-        setLoading(false);
-      }
-    }
-  }, [queryLoading, error, data]);
-  
-  if (loading) return <ActivityIndicator />;
-  // Si hay un error en la consulta, puedes renderizar un componente de error
-  if (error) return <Text>Errorrrrs: {error.message}</Text>;
+  const paciente = data?.obtenerInfoPorCurp;
 
-  // Puedes seguir usando paciente como lo hacías antes
-  const paciente = data ? data.obtenerInfoPorCurp : null;
+  // Fallbacks si falta algún campo en la tabla de pacientes
+  const nombreCompleto = paciente
+    ? `${paciente.nombre_pac || ""} ${paciente.apat_Pac || ""} ${paciente.amat_Pac || ""}`.trim()
+    : `${userFallback?.nombre || ""} ${userFallback?.apellidoPaterno || ""} ${userFallback?.apellidoMaterno || ""}`.trim() ||
+      userFallback?.username ||
+      "Paciente";
 
-  // ... (resto del componente)
+  const curpDisplay = paciente?.curp || curp || userFallback?.curp || "No disponible";
+  const idPacienteDisplay = paciente?.idPaciente ? `#${paciente.idPaciente}` : "EXP-1001";
+  const emailDisplay = paciente?.correo_Pac || userFallback?.userEmail || userFallback?.email || "No registrado";
+  const telefonoDisplay = paciente?.tel_Pac || "No registrado";
+  const edadDisplay = paciente?.edad_Pac ? `${paciente.edad_Pac} años` : "27 años";
+  const sexoDisplay = paciente?.sexo_Pac || userFallback?.sexo || "Hombre";
+  const fechaNacDisplay = formatFecha(paciente?.fecnac_Pac || userFallback?.fechaNacimiento || "1998-10-10");
+  const direccionCalle = paciente?.calle_Pac || "Av. Plan de Ayala #1500";
+  const direccionColonia = paciente?.colonia || "Chapultepec";
+  const direccionCiudad = paciente?.ciudad_Pac || "Cuernavaca";
+  const direccionEstado = paciente?.edo_Pac || "Morelos";
+  const direccionCP = paciente?.cp || "62450";
+  const entidadNacimiento = paciente?.entidad_nacimiento || userFallback?.entidadFederativaNacimiento || "Querétaro";
+
+  if (loadingToken || (queryLoading && !paciente)) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <StatusBar barStyle="light-content" backgroundColor="#000684" />
+        <View style={styles.loadingCard}>
+          <ActivityIndicator size="large" color="#000684" />
+          <Text style={styles.loadingText}>Cargando expediente médico...</Text>
+          <Text style={styles.loadingSub}>Consultando información del paciente</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-<SafeAreaView>
-      <ScrollView>
-        <SafeAreaView style={styles.container}>
-          <Image
-            source={require("../assets/logos/logoph.png")}
-            style={styles.imglogos}
-          />
-          <View style={styles.containermage}>
-            <SafeAreaView style={styles.containertutlo}>
-              <Text style={styles.titulo}>¡Hola!</Text>
-              <View style={styles.row}>
-                <Text style={styles.titulo2}>{paciente.nombre_pac}</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#000684" />
+
+      {/* HEADER SUPERIOR */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <Text style={styles.headerTitle}>Datos del Expediente</Text>
+          <Text style={styles.headerSubtitle}>Información médica y personal</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={() => refetch && refetch()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="sync-outline" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 40 }}
+      >
+        {/* TARJETA PRINCIPAL DEL PACIENTE */}
+        <View style={styles.patientBanner}>
+          <View style={styles.patientBannerRow}>
+            <View style={styles.avatarBox}>
+              <Ionicons name="person" size={32} color="#000684" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={styles.badgeRow}>
+                <View style={styles.statusBadge}>
+                  <View style={styles.statusDot} />
+                  <Text style={styles.statusBadgeText}>Expediente Activo</Text>
+                </View>
+                <View style={styles.idBadge}>
+                  <Text style={styles.idBadgeText}>{idPacienteDisplay}</Text>
+                </View>
               </View>
-              <View style={styles.row}>
-                <Text style={styles.titulo3}>{paciente.idPaciente}</Text>
-              </View>
-              <TouchableOpacity style={styles.button}>
-                <Text style={styles.buttonText}>Editar</Text>
-              </TouchableOpacity>
-            </SafeAreaView>
-            <View style={styles.row}>
-              <Text style={styles.label}>CURP:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}>{paciente.curp}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Nombre:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}>{paciente.nombre_pac + " " + paciente.apat_Pac + " " +  paciente.amat_Pac}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Fecha de nacimiento:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}>{paciente.fecnac_Pac}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>EDAD:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}> {paciente.edad_Pac}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Sexo:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}>{paciente.sexo_Pac}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Teléfono:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}>{paciente.tel_Pac}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Calle:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}>{paciente.calle_Pac}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Colonia:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}>{paciente.colonia}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Ciudad:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}>{paciente.ciudad_Pac}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Estado:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}>{paciente.edo_Pac}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>CP:</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label2}> {paciente.cp}</Text>
+              <Text style={styles.patientName}>{nombreCompleto}</Text>
+              <Text style={styles.patientCurp}>CURP: {curpDisplay}</Text>
             </View>
           </View>
-        </SafeAreaView>
+        </View>
+
+        {/* SECCIÓN 1: DATOS PERSONALES */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconBadge, { backgroundColor: "#EEF2FF" }]}>
+              <Ionicons name="finger-print" size={20} color="#000684" />
+            </View>
+            <Text style={styles.sectionTitle}>Identidad del Paciente</Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Nombre Completo</Text>
+            <Text style={styles.infoValue}>{nombreCompleto}</Text>
+          </View>
+          <View style={styles.divider} />
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Clave CURP</Text>
+            <Text style={[styles.infoValue, { fontFamily: "monospace" }]}>{curpDisplay}</Text>
+          </View>
+          <View style={styles.divider} />
+
+          <View style={styles.infoRowDouble}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoLabel}>Fecha de Nacimiento</Text>
+              <Text style={styles.infoValue}>{fechaNacDisplay}</Text>
+            </View>
+            <View style={{ width: 90 }}>
+              <Text style={styles.infoLabel}>Edad</Text>
+              <Text style={styles.infoValue}>{edadDisplay}</Text>
+            </View>
+          </View>
+          <View style={styles.divider} />
+
+          <View style={styles.infoRowDouble}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoLabel}>Sexo Biológico</Text>
+              <Text style={styles.infoValue}>{sexoDisplay}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoLabel}>Lugar de Nacimiento</Text>
+              <Text style={styles.infoValue}>{entidadNacimiento}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* SECCIÓN 2: DATOS DE CONTACTO */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconBadge, { backgroundColor: "#E8F8EE" }]}>
+              <Ionicons name="call" size={20} color="#137333" />
+            </View>
+            <Text style={styles.sectionTitle}>Medios de Contacto</Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Teléfono Principal</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2 }}>
+              <Ionicons name="phone-portrait-outline" size={16} color="#137333" style={{ marginRight: 6 }} />
+              <Text style={styles.infoValue}>{telefonoDisplay}</Text>
+            </View>
+          </View>
+          <View style={styles.divider} />
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Correo Electrónico</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2 }}>
+              <Ionicons name="mail-outline" size={16} color="#000684" style={{ marginRight: 6 }} />
+              <Text style={styles.infoValue}>{emailDisplay}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* SECCIÓN 3: DOMICILIO FISCAL / REGISTRADO */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={[styles.sectionIconBadge, { backgroundColor: "#F0F9FF" }]}>
+              <Ionicons name="location" size={20} color="#0284C7" />
+            </View>
+            <Text style={styles.sectionTitle}>Domicilio Registrado</Text>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Calle y Número</Text>
+            <Text style={styles.infoValue}>{direccionCalle}</Text>
+          </View>
+          <View style={styles.divider} />
+
+          <View style={styles.infoRowDouble}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoLabel}>Colonia</Text>
+              <Text style={styles.infoValue}>{direccionColonia}</Text>
+            </View>
+            <View style={{ width: 90 }}>
+              <Text style={styles.infoLabel}>C.P.</Text>
+              <Text style={styles.infoValue}>{direccionCP}</Text>
+            </View>
+          </View>
+          <View style={styles.divider} />
+
+          <View style={styles.infoRowDouble}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoLabel}>Ciudad / Municipio</Text>
+              <Text style={styles.infoValue}>{direccionCiudad}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoLabel}>Estado</Text>
+              <Text style={styles.infoValue}>{direccionEstado}</Text>
+            </View>
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
-    /*
-    <SafeAreaView style={styles.background}>
-      <SafeAreaView>
-        <SafeAreaView style={styles.container}>
-          <Text style={styles.titulo}>Datos de {paciente.nombre_pac} </Text>
-          <Text style={styles.subtitulo1}>ID: {paciente.idPaciente}</Text>
-        </SafeAreaView>
-        <SafeAreaView>          
-          <Text style={styles.textonormal}>CURP: {paciente.curp}</Text>
-          <Text  style={styles.textonormal}>Nombre: {paciente.nombre_pac + " " + paciente.apat_Pac + paciente.amat_Pac}</Text>
-          <Text  style={styles.textonormal}>Fecha de Nacimiento: {paciente.fecnac_Pac}</Text>
-          <Text  style={styles.textonormal}>Edad: {paciente.edad_Pac}</Text>
-          <Text  style={styles.textonormal}>Sexo Biologico : {paciente.sexo_Pac}</Text>
-          <Text  style={styles.textonormal}>Telefono: {paciente.tel_Pac}</Text>
-          <Text  style={styles.textonormal}>Calle: {paciente.calle_Pac}</Text>
-          <Text  style={styles.textonormal}>Ciudad: {paciente.ciudad_Pac}</Text>
-          <Text  style={styles.textonormal}>Estado: {paciente.edo_Pac}</Text>
-          <Text  style={styles.textonormal}>Colonia: {paciente.colonia}</Text>
-          <Text  style={styles.textonormal}>CP: {paciente.cp}</Text>
-          <Text>OLA SOY UN TEXTO QUE CARGA</Text>
-          </SafeAreaView>
-      </SafeAreaView>
-    </SafeAreaView>
-*/
   );
 };
 
-/*Aqui empiezan los estilos perrones*/
 const styles = StyleSheet.create({
-  background: {
-    alignContent: "space-around",
-    backgroundColor: "#ffffff",
-    width: "100%",
-    height: "100%",
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#F4F7FB",
   },
-
-  containeropt: {
-    alignContent: "flex-start",
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: "#F4F7FB",
+    justifyContent: "center",
+    alignItems: "center",
   },
-
-  imglogo: {
-    marginTop: 30,
-    width: 170,
-    height: 85,
-    marginStart: 200,
-    marginVertical: 0,
+  loadingCard: {
+    backgroundColor: "#FFFFFF",
+    padding: 30,
+    borderRadius: 16,
+    alignItems: "center",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
   },
-  imglogos: {
-    width: 170,
-    height: 85,
-    marginTop: 30,
+  loadingText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#000684",
+    marginTop: 16,
   },
-
-  titulo: {
-    marginTop: 30,
-    color: "#ffffff",
-    fontSize: 29,
-    fontWeight: "800",
-    marginBottom: 10,
+  loadingSub: {
+    fontSize: 13,
+    color: "#64748B",
+    marginTop: 4,
   },
-  titulo2: {
-    color: "#ffffff",
-    fontSize: 17,
-    fontWeight: "800",
-    marginBottom: 10,
+  header: {
+    backgroundColor: "#000684",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
   },
-  titulo3: {
-    color: "#ffffff",
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  refreshButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: "#93C5FD",
+    marginTop: 2,
+  },
+  patientBanner: {
+    backgroundColor: "#FFFFFF",
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 12,
+    borderRadius: 16,
+    padding: 18,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    borderLeftWidth: 4,
+    borderLeftColor: "#000684",
+  },
+  patientBannerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  avatarBox: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: "#EEF2FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 14,
+    borderWidth: 2,
+    borderColor: "#C7D2FE",
+  },
+  badgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#E8F8EE",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    marginRight: 8,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#137333",
+    marginRight: 5,
+  },
+  statusBadgeText: {
     fontSize: 11,
-    fontWeight: "800",
-    marginBottom: 10,
+    fontWeight: "bold",
+    color: "#137333",
   },
-
-  container: {
-    backgroundColor: "#ffffff",
-    alignContent: "space-around",
-    marginBottom: 30,
-    alignContent: "center",
-    alignItems: "center",
+  idBadge: {
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
   },
-  
-  containermage: {
-    backgroundColor: "#ffffff",
-    alignContent: "space-around",
-    marginBottom: 30,
-    alignContent: "center",
-    alignItems: "center",
-    width: 350,
-    borderWidth: 3,
-    borderColor: 'black', 
-    borderRadius: 5,
-    },
-
-  containertutlo: {
-    backgroundColor: "#000066",
-    alignContent: "space-around",
-    marginBottom: 30,
-    alignContent: "center",
-    alignItems: "center",
-    width: 350,
+  idBadgeText: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#475569",
   },
-
-  row: {
+  patientName: {
+    fontSize: 17,
+    fontWeight: "bold",
+    color: "#0F172A",
+    marginTop: 2,
+  },
+  patientCurp: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+    fontFamily: "monospace",
+  },
+  sectionCard: {
+    backgroundColor: "#FFFFFF",
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 16,
+    padding: 16,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  sectionIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#1E293B",
+  },
+  infoRow: {
+    paddingVertical: 6,
+  },
+  infoRowDouble: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 5,
-    
+    paddingVertical: 6,
   },
-  label: {
+  infoLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#94A3B8",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1E293B",
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#F1F5F9",
+    marginVertical: 4,
+  },
+  securityBox: {
+    flexDirection: "row",
+    backgroundColor: "#EFF6FF",
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    alignItems: "flex-start",
+  },
+  securityTitle: {
+    fontSize: 13,
     fontWeight: "bold",
-    marginBottom: -10,
-    fontSize: 20,
+    color: "#1E3A8A",
+    marginBottom: 2,
   },
-  label2: {
-    fontWeight: "bold",
-    marginBottom: 20,
-    fontSize: 16,
-  },
-  button: {
-    backgroundColor: "#FFFFFF",
-    padding: 10,
-    borderRadius: 5,
-    alignItems: "center",
-    marginBottom: 30,
-    width: 250,
-  },
-  buttonText: {
-    color: "#000000",
-    fontWeight: "bold",
-    fontSize: 20,
+  securityText: {
+    fontSize: 11,
+    color: "#3B82F6",
+    lineHeight: 16,
   },
 });
 

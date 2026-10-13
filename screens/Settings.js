@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   SafeAreaView,
   StyleSheet,
@@ -13,6 +13,7 @@ import {
   Alert,
   StatusBar,
   Modal,
+  Animated,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { gql, useMutation } from '@apollo/client';
@@ -60,9 +61,39 @@ const Settings = () => {
   const [loading, setLoading] = useState(false);
   const [modalLogout, setModalLogout] = useState(false);
 
+  // Estados para animación de carga en sesión
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionLoadingText, setSessionLoadingText] = useState('');
+  const [sessionLoadingSub, setSessionLoadingSub] = useState('');
+  const [sessionLoadingType, setSessionLoadingType] = useState('login');
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
   const forceUpdate = useForceUpdate();
   const navigation = useNavigation();
   const [autenticarUsuario] = useMutation(AUTENTICAR_USER);
+
+  useEffect(() => {
+    if (sessionLoading) {
+      const pulseLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.08,
+            duration: 700,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 700,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulseLoop.start();
+      return () => pulseLoop.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [sessionLoading]);
 
   const getToken = async () => {
     try {
@@ -96,8 +127,12 @@ const Settings = () => {
       return;
     }
 
-    setLoading(true);
     setMensaje(null);
+    setLoading(true);
+    setSessionLoadingType('login');
+    setSessionLoadingText('Iniciando sesión...');
+    setSessionLoadingSub('Verificando credenciales médicas...');
+    setSessionLoading(true);
 
     try {
       const { data } = await autenticarUsuario({
@@ -112,14 +147,30 @@ const Settings = () => {
       const tokenRecibido = data.autenticarUsuario.token;
       await AsyncStorage.setItem('token', tokenRecibido);
       setToken(tokenRecibido);
-      setMensaje(null);
+
+      const decoded = parseJwt(tokenRecibido);
+      setUserData(decoded);
+
+      setSessionLoadingText('Cargando expediente...');
+      setSessionLoadingSub('Sincronizando estudios y recursos clínicos...');
+      
+      // Pausa estratégica para permitir la precarga fluida de assets y queries
+      await new Promise((resolve) => setTimeout(resolve, 1400));
+
+      setSessionLoadingText('¡Bienvenido!');
+      setSessionLoadingSub('Acceso concedido correctamente');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      setSessionLoading(false);
       setLoading(false);
+      forceUpdate();
 
       if (tokenRecibido) {
         navigation.navigate('Perfil');
       }
     } catch (error) {
       console.log('Error de login:', error);
+      setSessionLoading(false);
       setLoading(false);
       forceUpdate();
       setMensaje('Credenciales incorrectas. Verifica tu correo y contraseña.');
@@ -127,16 +178,33 @@ const Settings = () => {
   };
 
   const confirmarCerrarSesion = async () => {
+    setModalLogout(false);
+    setSessionLoadingType('logout');
+    setSessionLoadingText('Cerrando sesión...');
+    setSessionLoadingSub('Finalizando conexión y protegiendo tu expediente...');
+    setSessionLoading(true);
+
     try {
       await AsyncStorage.removeItem('token');
+      
+      // Pausa fluida para descarga de recursos y transición visual limpia
+      await new Promise((resolve) => setTimeout(resolve, 1300));
+      
       setToken(null);
       setUserData(null);
-      setModalLogout(false);
       setEmail('');
       setPassword('');
+
+      setSessionLoadingText('Sesión finalizada');
+      setSessionLoadingSub('Vuelve pronto a Imagen Médica MRI');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      setSessionLoading(false);
+      forceUpdate();
       navigation.navigate('InicioScreen');
     } catch (error) {
       console.log('Error al cerrar sesión:', error);
+      setSessionLoading(false);
     }
   };
 
@@ -181,11 +249,46 @@ const Settings = () => {
     Linking.openURL('tel:7773620260');
   };
 
+  const renderSessionLoadingModal = () => (
+    <Modal visible={sessionLoading} transparent animationType="fade" statusBarTranslucent>
+      <View style={styles.sessionLoadingOverlay}>
+        <View style={styles.sessionLoadingCard}>
+          <Animated.View style={[styles.sessionLoadingLogoBox, { transform: [{ scale: pulseAnim }] }]}>
+            <Image
+              source={require('../assets/logos/logoph.png')}
+              style={styles.sessionLoadingLogo}
+              resizeMode="contain"
+            />
+          </Animated.View>
+          <View style={styles.sessionSpinnerBox}>
+            <ActivityIndicator size="large" color="#000684" />
+          </View>
+          <Text style={styles.sessionLoadingTitle}>{sessionLoadingText}</Text>
+          <Text style={styles.sessionLoadingSubtitle}>{sessionLoadingSub}</Text>
+          <View style={styles.sessionLoadingBadge}>
+            <Ionicons
+              name={sessionLoadingType === 'login' ? 'shield-checkmark' : 'lock-closed'}
+              size={14}
+              color="#000684"
+              style={{ marginRight: 6 }}
+            />
+            <Text style={styles.sessionLoadingBadgeText}>
+              {sessionLoadingType === 'login' ? 'PORTAL MÉDICO MRI SEGURO' : 'CIERRE DE SESIÓN SEGURO'}
+            </Text>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   // VISTA 1: USUARIO AUTENTICADO -> PANEL DE CONFIGURACIÓN
   if (token !== null) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="light-content" backgroundColor="#000684" />
+
+        {/* MODAL DE ANIMACIÓN DE CARGA */}
+        {renderSessionLoadingModal()}
         
         {/* HEADER SUPERIOR */}
         <View style={styles.loggedHeader}>
@@ -361,6 +464,9 @@ const Settings = () => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+
+      {/* MODAL DE ANIMACIÓN DE CARGA */}
+      {renderSessionLoadingModal()}
 
       <ScrollView contentContainerStyle={styles.loginScroll} showsVerticalScrollIndicator={false}>
         {/* LOGO Y ENCABEZADO */}
@@ -928,6 +1034,73 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#64748B',
     marginTop: 1,
+  },
+
+  // ESTILOS DE ANIMACIÓN DE CARGA (LOGIN Y LOGOUT)
+  sessionLoadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 6, 132, 0.82)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  sessionLoadingCard: {
+    backgroundColor: '#FFFFFF',
+    width: '90%',
+    maxWidth: 340,
+    borderRadius: 24,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    elevation: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  sessionLoadingLogoBox: {
+    width: 140,
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sessionLoadingLogo: {
+    width: '100%',
+    height: '100%',
+  },
+  sessionSpinnerBox: {
+    marginVertical: 10,
+  },
+  sessionLoadingTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0F172A',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  sessionLoadingSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 18,
+    paddingHorizontal: 8,
+  },
+  sessionLoadingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginTop: 18,
+  },
+  sessionLoadingBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#000684',
+    letterSpacing: 0.8,
   },
 });
 

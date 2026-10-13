@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useQuery, gql, useApolloClient } from "@apollo/client";
 import { useNavigation } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -11,12 +11,13 @@ import {
   View,
   Button,
   Alert,
-  ScrollView
+  ScrollView,
+  TouchableOpacity,
 } from "react-native";
 import base64 from "base-64";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 
 const OBTENER_ARCHIVOS_POR_CURP = gql`
   query ObtenerArchivosPorCurp($curp: String!) {
@@ -212,26 +213,51 @@ const HistorialStudio = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
+      {/* HEADER SUPERIOR CON BOTÓN DE REGRESO */}
+      <View style={styles.topHeader}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <Text style={styles.topHeaderTitle}>Historial de Estudios</Text>
+          <Text style={styles.topHeaderSub}>Resultados, reportes y laboratorios</Text>
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 16, paddingBottom: 30 }}>
         {!token ? (
-          <View style={styles.container2}>
-            <Text style={styles.tituloDeneg}>
-              Parece que aún no has iniciado sesión. Inicia sesión aquí.
+          <View style={styles.loggedOutCard}>
+            <View style={styles.loggedOutIconBox}>
+              <Ionicons name="lock-closed" size={36} color="#000684" />
+            </View>
+            <Text style={styles.loggedOutTitle}>Inicia Sesión para Ver tus Resultados</Text>
+            <Text style={styles.loggedOutSub}>
+              Accede con tu cuenta para consultar y descargar tus reportes médicos, interpretaciones y análisis de laboratorio.
             </Text>
-            <Button
-              title="Iniciar Sesión"
-              color="#000066"
-              style={styles.button}
+            <TouchableOpacity
+              style={styles.loggedOutBtn}
               onPress={() => navigation.navigate("Configuracion")}
-            />
+              activeOpacity={0.85}
+            >
+              <Text style={styles.loggedOutBtnText}>Iniciar Sesión Ahora</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <>
             {loading || labLoading ? (
-              <ActivityIndicator size="large" color="#000066" style={{ marginTop: 40 }} />
+              <View style={styles.loadingBox}>
+                <ActivityIndicator size="large" color="#000684" />
+                <Text style={styles.loadingText}>Cargando historial de estudios...</Text>
+              </View>
             ) : archivos.length === 0 && labs.length === 0 ? (
               <View style={styles.noEstudiosBox}>
-                <MaterialIcons name="info-outline" size={60} color="#000066" style={{ alignSelf: "center", marginBottom: 12 }} />
+                <View style={styles.noEstudiosIconCircle}>
+                  <MaterialIcons name="folder-open" size={44} color="#000684" />
+                </View>
                 <Text style={styles.noEstudiosTitulo}>Aún no tienes estudios disponibles</Text>
                 <Text style={styles.noEstudiosTexto}>
                   No encontramos registros de estudios ni interpretaciones vinculados a tu cuenta en Imagen Médica MRI.
@@ -243,84 +269,114 @@ const HistorialStudio = () => {
             ) : (
               <>
                 {archivos.length > 0 && (
-                  <>
+                  <View style={styles.sectionWrapper}>
                     <View style={styles.headerContainer}>
+                      <View style={[styles.headerIconBadge, { backgroundColor: "rgba(255,255,255,0.2)" }]}>
+                        <MaterialIcons name="description" size={20} color="#FFFFFF" />
+                      </View>
                       <Text style={styles.header}>Interpretaciones</Text>
-                      <MaterialIcons name="description" size={32} color="#fff" style={styles.icon} />
+                      <View style={styles.countBadge}>
+                        <Text style={styles.countBadgeText}>{archivos.length}</Text>
+                      </View>
                     </View>
 
-                    <View style={styles.table}>
-                      <View style={styles.tableRow}>
-                        <Text style={[styles.tableCell, styles.tableHeader]}>Estudio</Text>
-                        <Text style={[styles.tableCell, styles.tableHeader]}>Nota</Text>
-                        <Text style={[styles.tableCell, styles.tableHeader]}>Fecha</Text>
-                        <Text style={[styles.tableCell, styles.tableHeader]}>Acción</Text>
+                    <View style={styles.tableCard}>
+                      <View style={styles.tableHeaderRow}>
+                        <Text style={[styles.tableCellHead, { flex: 1.4 }]}>Estudio</Text>
+                        <Text style={[styles.tableCellHead, { flex: 0.9 }]}>Nota</Text>
+                        <Text style={[styles.tableCellHead, { flex: 1 }]}>Fecha</Text>
+                        <Text style={[styles.tableCellHead, { flex: 1.1 }]}>Acción</Text>
                       </View>
 
                       <FlatList
                         data={archivos}
                         keyExtractor={(item, index) => index.toString()}
                         scrollEnabled={false}
-                        renderItem={({ item }) => {
+                        renderItem={({ item, index }) => {
                           const fechaExtraida = obtenerFechaDeRuta(item.contenido);
+                          const isEven = index % 2 === 0;
                           return (
-                            <View style={styles.tableRow}>
-                              <Text style={styles.tableCell}>{item.nombre}</Text>
-                              <Text style={styles.tableCell}>{item.orden}</Text>
-                              <Text style={styles.tableCell}>{fechaExtraida}</Text>
-                              <View style={styles.tableCellBtn}>
-                                <Button
-                                  title="Descargar"
-                                  onPress={() => handleDownload(item.contenido, item.nombre)} 
-                                  color="#000066"
-                                />
+                            <View style={[styles.tableRow, isEven ? styles.rowEven : styles.rowOdd]}>
+                              <Text style={[styles.tableCell, { flex: 1.4, fontWeight: "600", color: "#0F172A" }]} numberOfLines={2}>
+                                {item.nombre}
+                              </Text>
+                              <Text style={[styles.tableCell, { flex: 0.9, color: "#475569" }]} numberOfLines={1}>
+                                {item.orden || item.nota || "—"}
+                              </Text>
+                              <Text style={[styles.tableCell, { flex: 1, color: "#64748B", fontSize: 11 }]} numberOfLines={1}>
+                                {fechaExtraida}
+                              </Text>
+                              <View style={[styles.tableCellBtn, { flex: 1.1 }]}>
+                                <TouchableOpacity
+                                  style={styles.actionBtnDownload}
+                                  onPress={() => handleDownload(item.contenido, item.nombre)}
+                                  activeOpacity={0.8}
+                                >
+                                  <Ionicons name="download-outline" size={13} color="#FFFFFF" style={{ marginRight: 3 }} />
+                                  <Text style={styles.actionBtnText}>Descargar</Text>
+                                </TouchableOpacity>
                               </View>
                             </View>
                           );
                         }}
                       />
                     </View>
-                  </>
+                  </View>
                 )}
 
                 {labs.length > 0 && (
-                  <>
+                  <View style={styles.sectionWrapper}>
                     <View style={styles.headerContainer}>
+                      <View style={[styles.headerIconBadge, { backgroundColor: "rgba(255,255,255,0.2)" }]}>
+                        <MaterialIcons name="science" size={20} color="#FFFFFF" />
+                      </View>
                       <Text style={styles.header}>Laboratorio</Text>
-                      <MaterialIcons name="science" size={32} color="#fff" style={styles.icon} />
+                      <View style={styles.countBadge}>
+                        <Text style={styles.countBadgeText}>{labs.length}</Text>
+                      </View>
                     </View>
 
-                    <View style={styles.table}>
-                      <View style={styles.tableRow}>
-                        <Text style={[styles.tableCell, styles.tableHeader]}>Estudio</Text>
-                        <Text style={[styles.tableCell, styles.tableHeader]}>Nota</Text>
-                        <Text style={[styles.tableCell, styles.tableHeader]}>Fecha</Text>
-                        <Text style={[styles.tableCell, styles.tableHeader]}>Acción</Text>
+                    <View style={styles.tableCard}>
+                      <View style={styles.tableHeaderRow}>
+                        <Text style={[styles.tableCellHead, { flex: 1.4 }]}>Estudio</Text>
+                        <Text style={[styles.tableCellHead, { flex: 0.9 }]}>Nota</Text>
+                        <Text style={[styles.tableCellHead, { flex: 1 }]}>Fecha</Text>
+                        <Text style={[styles.tableCellHead, { flex: 1.1 }]}>Acción</Text>
                       </View>
 
                       <FlatList
                         data={labs}
                         keyExtractor={(item, index) => index.toString()}
                         scrollEnabled={false}
-                        renderItem={({ item }) => (
-                          <View style={styles.tableRow}>
-                            <Text style={styles.tableCell}>{item.estudio}</Text>
-                            <Text style={styles.tableCell}>{item.nonota}</Text>
-                            <Text style={styles.tableCell}>
-                              {item.fecha_prin ? new Date(item.fecha_prin).toLocaleDateString() : 'N/A'}
-                            </Text>
-                            <View style={styles.tableCellBtn}>
-                              <Button
-                                title="Archivo"
-                                onPress={() => handleDownloadLaboratorio(item)}
-                                color="#000066"
-                              />
+                        renderItem={({ item, index }) => {
+                          const isEven = index % 2 === 0;
+                          return (
+                            <View style={[styles.tableRow, isEven ? styles.rowEven : styles.rowOdd]}>
+                              <Text style={[styles.tableCell, { flex: 1.4, fontWeight: "600", color: "#0F172A" }]} numberOfLines={2}>
+                                {item.estudio}
+                              </Text>
+                              <Text style={[styles.tableCell, { flex: 0.9, color: "#475569" }]} numberOfLines={1}>
+                                {item.nonota || "—"}
+                              </Text>
+                              <Text style={[styles.tableCell, { flex: 1, color: "#64748B", fontSize: 11 }]} numberOfLines={1}>
+                                {item.fecha_prin ? new Date(item.fecha_prin).toLocaleDateString("es-MX") : "N/A"}
+                              </Text>
+                              <View style={[styles.tableCellBtn, { flex: 1.1 }]}>
+                                <TouchableOpacity
+                                  style={[styles.actionBtnDownload, { backgroundColor: "#15803D" }]}
+                                  onPress={() => handleDownloadLaboratorio(item)}
+                                  activeOpacity={0.8}
+                                >
+                                  <Ionicons name="document-text-outline" size={13} color="#FFFFFF" style={{ marginRight: 3 }} />
+                                  <Text style={styles.actionBtnText}>Archivo</Text>
+                                </TouchableOpacity>
+                              </View>
                             </View>
-                          </View>
-                        )}
+                          );
+                        }}
                       />
                     </View>
-                  </>
+                  </View>
                 )}
               </>
             )}
@@ -334,101 +390,246 @@ const HistorialStudio = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#ffffff",
-    padding: 16,
+    backgroundColor: "#F4F7FB",
   },
-  container2: {
-    backgroundColor: "#000066",
-    padding: 24,
-    borderRadius: 10,
-    marginTop: 40,
+  topHeader: {
+    backgroundColor: "#000684",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
     justifyContent: "center",
     alignItems: "center",
   },
-  tituloDeneg: {
+  topHeaderTitle: {
     fontSize: 18,
-    color: "#ffffff",
     fontWeight: "bold",
+    color: "#FFFFFF",
+  },
+  topHeaderSub: {
+    fontSize: 12,
+    color: "#93C5FD",
+    marginTop: 2,
+  },
+  loggedOutCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 24,
+    marginTop: 30,
+    alignItems: "center",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  loggedOutIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#EEF2FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  loggedOutTitle: {
+    fontSize: 17,
+    fontWeight: "bold",
+    color: "#0F172A",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  loggedOutSub: {
+    fontSize: 13,
+    color: "#64748B",
+    textAlign: "center",
+    lineHeight: 18,
     marginBottom: 20,
+  },
+  loggedOutBtn: {
+    backgroundColor: "#000684",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    width: "100%",
+    alignItems: "center",
+  },
+  loggedOutBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  loadingBox: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 28,
+    marginTop: 30,
+    alignItems: "center",
+    elevation: 2,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: "#000684",
+    fontWeight: "600",
+    marginTop: 12,
+  },
+  noEstudiosBox: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 26,
+    marginTop: 24,
+    alignItems: "center",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  noEstudiosIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "#EEF2FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  noEstudiosTitulo: {
+    fontSize: 17,
+    fontWeight: "bold",
+    color: "#000684",
+    marginBottom: 8,
     textAlign: "center",
   },
-  button: {
-    marginTop: 20,
+  noEstudiosTexto: {
+    fontSize: 13,
+    color: "#475569",
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  noEstudiosSubtexto: {
+    fontSize: 12,
+    color: "#94A3B8",
+    textAlign: "center",
+    lineHeight: 16,
+  },
+  sectionWrapper: {
+    marginTop: 18,
   },
   headerContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#000066",
-    padding: 12,
-    borderRadius: 6,
-    marginTop: 20
+    backgroundColor: "#000684",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+  },
+  headerIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
   },
   header: {
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: "bold",
-    color: "#fff",
+    color: "#FFFFFF",
     flex: 1,
   },
-  icon: {
-    marginRight: 4,
+  countBadge: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
   },
-  table: {
-    borderWidth: 1,
-    borderColor: "#DDD",
-    borderRadius: 6,
+  countBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  tableCard: {
+    backgroundColor: "#FFFFFF",
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
     overflow: "hidden",
-    marginTop: 10,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderTopWidth: 0,
+  },
+  tableHeaderRow: {
+    flexDirection: "row",
+    backgroundColor: "#F1F5F9",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E2E8F0",
+  },
+  tableCellHead: {
+    fontWeight: "700",
+    color: "#475569",
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+    textAlign: "center",
   },
   tableRow: {
     flexDirection: "row",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#EEE",
+    borderBottomColor: "#F1F5F9",
     alignItems: "center",
+  },
+  rowEven: {
+    backgroundColor: "#FFFFFF",
+  },
+  rowOdd: {
+    backgroundColor: "#F8FAFC",
   },
   tableCell: {
-    flex: 1,
-    padding: 8,
+    paddingHorizontal: 4,
     textAlign: "center",
-    fontSize: 13,
+    fontSize: 12,
   },
   tableCellBtn: {
-    flex: 1,
-    padding: 4,
-  },
-  tableHeader: {
-    fontWeight: "bold",
-    backgroundColor: "#F0F0F0",
-    color: "#333",
-  },
-  noEstudiosBox: {
-    backgroundColor: "#F4F6F9",
-    borderRadius: 12,
-    padding: 24,
-    marginTop: 30,
-    marginHorizontal: 10,
+    paddingHorizontal: 2,
     alignItems: "center",
-    borderColor: "#E1E6ED",
-    borderWidth: 1,
   },
-  noEstudiosTitulo: {
-    fontSize: 18,
+  actionBtnDownload: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#000684",
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    width: "100%",
+  },
+  actionBtnText: {
+    color: "#FFFFFF",
+    fontSize: 11,
     fontWeight: "bold",
-    color: "#000066",
-    marginBottom: 10,
-    textAlign: "center",
-  },
-  noEstudiosTexto: {
-    fontSize: 14,
-    color: "#444",
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 12,
-  },
-  noEstudiosSubtexto: {
-    fontSize: 13,
-    color: "#666",
-    textAlign: "center",
-    fontStyle: "italic",
   },
 });
 
