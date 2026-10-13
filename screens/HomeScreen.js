@@ -17,7 +17,6 @@ import Carousel from "react-native-snap-carousel";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import { WebView } from "react-native-webview";
 
 const data = [
   { id: 1, title: "CheckUps", image: "https://i.imgur.com/jrViBRq.jpeg" },
@@ -26,129 +25,8 @@ const data = [
   { id: 4, title: "Tomografías", image: "https://i.imgur.com/2XLVK0I.jpeg" },
 ];
 
-const generateMapHtml = (selectedId) => `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <style>
-    html, body, #map {
-      height: 100%;
-      width: 100%;
-      margin: 0;
-      padding: 0;
-      background: #E8EDF5;
-    }
-    .mri-marker {
-      background: #000684;
-      color: #ffffff;
-      border: 2px solid #ffffff;
-      border-radius: 16px;
-      padding: 3px 8px;
-      font-size: 11px;
-      font-weight: bold;
-      white-space: nowrap;
-      box-shadow: 0 3px 6px rgba(0,0,0,0.3);
-      cursor: pointer;
-    }
-    .mri-marker-active {
-      background: #000684;
-      border: 2px solid #FFD700;
-      box-shadow: 0 4px 12px rgba(0,6,132,0.6);
-      transform: scale(1.08);
-    }
-    .leaflet-popup-content-wrapper {
-      border-radius: 12px;
-      padding: 4px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    .popup-title {
-      font-weight: bold;
-      color: #000684;
-      font-size: 13px;
-      margin-bottom: 2px;
-    }
-    .popup-badge {
-      display: inline-block;
-      background: #EEF2FF;
-      color: #000684;
-      font-size: 10px;
-      font-weight: 600;
-      padding: 1px 6px;
-      border-radius: 4px;
-      margin-bottom: 4px;
-    }
-    .popup-addr {
-      font-size: 11px;
-      color: #475569;
-      line-height: 14px;
-    }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script>
-    const sucursales = [
-      { id: "cuernavaca", title: "Cuernavaca (Matriz)", shortName: "Cuernavaca", badge: "Matriz Principal", address: "Av. Cuauhtémoc #100, Cantarranas", lat: 18.9259789, lng: -99.2287938 },
-      { id: "jiutepec", title: "Jiutepec (Sucursal)", shortName: "Jiutepec", badge: "Sucursal Oriente", address: "Av. Insurgentes #45, Centro", lat: 18.898535, lng: -99.171207 },
-      { id: "cuautla", title: "Cuautla (Sucursal)", shortName: "Cuautla", badge: "Sucursal Cuautla", address: "Calle Batalla 19 de Febrero #30", lat: 18.816393, lng: -98.948435 },
-      { id: "jojutla", title: "Jojutla (Sucursal)", shortName: "Jojutla", badge: "Sucursal Sur", address: "Calle Zayas Enríquez #202", lat: 18.617170, lng: -99.192552 }
-    ];
-
-    const map = L.map('map', {
-      zoomControl: true,
-      attributionControl: false
-    }).setView([18.829, -99.126], 10);
-
-    L.tileLayer('https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19
-    }).addTo(map);
-
-    const markers = {};
-
-    sucursales.forEach(s => {
-      const isSel = s.id === "${selectedId || ''}";
-      const icon = L.divIcon({
-        className: 'custom-icon',
-        html: '<div class="mri-marker ' + (isSel ? 'mri-marker-active' : '') + '">🏥 ' + s.shortName + '</div>',
-        iconSize: [110, 28],
-        iconAnchor: [55, 14],
-        popupAnchor: [0, -14]
-      });
-
-      const m = L.marker([s.lat, s.lng], { icon: icon }).addTo(map);
-      m.bindPopup(
-        '<div>' +
-          '<div class="popup-title">' + s.title + '</div>' +
-          '<div class="popup-badge">' + s.badge + '</div>' +
-          '<div class="popup-addr">' + s.address + '</div>' +
-        '</div>'
-      );
-
-      m.on('click', () => {
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SELECT', id: s.id }));
-        }
-      });
-
-      markers[s.id] = m;
-    });
-
-    window.focusBranch = function(id) {
-      if (id && markers[id]) {
-        map.flyTo(markers[id].getLatLng(), 15, { animate: true, duration: 0.8 });
-        markers[id].openPopup();
-      } else {
-        map.flyTo([18.829, -99.126], 10, { animate: true, duration: 0.8 });
-      }
-    };
-  </script>
-</body>
-</html>
-`;
+const MAP_OVERVIEW_URL =
+  "https://static-maps.yandex.ru/1.x/?ll=-99.130000,18.820000&z=10&l=map&size=650,420&pt=-99.228793,18.925978,pm2rdm~-99.171207,18.898535,pm2rdm~-98.948435,18.816393,pm2rdm~-99.192552,18.617170,pm2rdm";
 
 const SUCURSALES_STATIC = [
   {
@@ -161,7 +39,8 @@ const SUCURSALES_STATIC = [
     horario: "Lun a Vie: 7:00 am - 8:00 pm | Sáb: 7:00 am - 3:00 pm",
     badge: "Matriz Principal",
     latlng: { latitude: 18.925978915069365, longitude: -99.22879388097707 },
-    pos: { top: "18%", left: "14%" },
+    mapUrl:
+      "https://static-maps.yandex.ru/1.x/?ll=-99.228793,18.925978&z=15&l=map&size=650,420&pt=-99.228793,18.925978,pm2rdm",
   },
   {
     id: "jiutepec",
@@ -173,7 +52,8 @@ const SUCURSALES_STATIC = [
     horario: "Lun a Vie: 7:00 am - 7:00 pm | Sáb: 7:00 am - 2:00 pm",
     badge: "Sucursal Oriente",
     latlng: { latitude: 18.898535, longitude: -99.171207 },
-    pos: { top: "36%", left: "42%" },
+    mapUrl:
+      "https://static-maps.yandex.ru/1.x/?ll=-99.171207,18.898535&z=15&l=map&size=650,420&pt=-99.171207,18.898535,pm2rdm",
   },
   {
     id: "cuautla",
@@ -185,7 +65,8 @@ const SUCURSALES_STATIC = [
     horario: "Lun a Sáb: 7:00 am - 3:00 pm",
     badge: "Sucursal Cuautla",
     latlng: { latitude: 18.816393, longitude: -98.948435 },
-    pos: { top: "42%", right: "10%" },
+    mapUrl:
+      "https://static-maps.yandex.ru/1.x/?ll=-98.948435,18.816393&z=15&l=map&size=650,420&pt=-98.948435,18.816393,pm2rdm",
   },
   {
     id: "jojutla",
@@ -197,7 +78,8 @@ const SUCURSALES_STATIC = [
     horario: "Lun a Sáb: 7:00 am - 3:00 pm",
     badge: "Sucursal Sur",
     latlng: { latitude: 18.617170, longitude: -99.192552 },
-    pos: { bottom: "16%", left: "28%" },
+    mapUrl:
+      "https://static-maps.yandex.ru/1.x/?ll=-99.192552,18.617170&z=15&l=map&size=650,420&pt=-99.192552,18.617170,pm2rdm",
   },
 ];
 
@@ -207,7 +89,6 @@ const HomeScreen = () => {
   const navigation = useNavigation();
   const [origin, setOrigin] = useState(null);
   const scrollViewRef = useRef(null);
-  const webViewRef = useRef(null);
   const [token, setToken] = useState(null);
 
   const [selectedBranch, setSelectedBranch] = useState(null); // null = todas
@@ -296,13 +177,6 @@ const HomeScreen = () => {
           y: 620,
           animated: true,
         });
-      }
-
-      if (webViewRef.current) {
-        const id = branch ? branch.id : "";
-        webViewRef.current.injectJavaScript(
-          `if (window.focusBranch) { window.focusBranch('${id}'); } true;`
-        );
       }
     }, 150);
   };
@@ -506,9 +380,9 @@ const HomeScreen = () => {
               {/* Barra superior con estado y botón reset */}
               <View style={styles.realMapTopBar}>
                 <View style={styles.realMapBadge}>
-                  <Ionicons name="location" size={14} color="#000684" style={{ marginRight: 6 }} />
+                  <Ionicons name="map" size={14} color="#000684" style={{ marginRight: 6 }} />
                   <Text style={styles.realMapBadgeText}>
-                    {selectedBranch ? selectedBranch.title : "Sucursales Morelos (4)"}
+                    {selectedBranch ? selectedBranch.title : "Red Sucursales Morelos (4)"}
                   </Text>
                 </View>
                 {selectedBranch ? (
@@ -517,55 +391,46 @@ const HomeScreen = () => {
                     onPress={() => handleSelectBranch(null)}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="scan-outline" size={12} color="#000684" style={{ marginRight: 4 }} />
+                    <Ionicons name="refresh-outline" size={12} color="#000684" style={{ marginRight: 4 }} />
                     <Text style={styles.realMapResetText}>Ver todas</Text>
                   </TouchableOpacity>
                 ) : (
-                  <Text style={styles.realMapHint}>Toca un marcador en el mapa</Text>
+                  <Text style={styles.realMapHint}>Toca una sucursal arriba</Text>
                 )}
               </View>
 
-              {/* MAPA REAL INTERACTIVO EN VIVO (LEAFLET / CARTO TILES) */}
-              <View style={styles.realMapView}>
-                <WebView
-                  ref={webViewRef}
-                  originWhitelist={["*"]}
-                  source={{ html: generateMapHtml(selectedBranch?.id) }}
-                  style={{ flex: 1, backgroundColor: "#E8EDF5" }}
-                  javaScriptEnabled={true}
-                  domStorageEnabled={true}
-                  startInLoadingState={true}
-                  scalesPageToFit={true}
-                  scrollEnabled={false}
-                  onMessage={(event) => {
-                    try {
-                      const msg = JSON.parse(event.nativeEvent.data);
-                      if (msg.type === "SELECT") {
-                        const target = SUCURSALES_STATIC.find((s) => s.id === msg.id);
-                        if (target) setSelectedBranch(target);
-                      }
-                    } catch (e) {
-                      console.log("Error mensaje mapa:", e);
-                    }
-                  }}
-                />
-              </View>
-
-              {/* Botón para abrir ruta real en Google Maps */}
+              {/* MAPA REAL EN VIVO CON CALLES Y DIRECCIONES REALES */}
               <TouchableOpacity
-                style={styles.realMapGpsBtn}
+                style={styles.realMapImageWrap}
+                activeOpacity={0.92}
                 onPress={() => {
                   const target = selectedBranch || SUCURSALES_STATIC[0];
                   handleNavegarSucursal(target);
                 }}
-                activeOpacity={0.88}
               >
-                <Ionicons name="navigate" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
-                <Text style={styles.realMapGpsText}>
-                  {selectedBranch
-                    ? `Cómo llegar a ${selectedBranch.shortName} (Google Maps)`
-                    : "Cómo llegar a Matriz Cuernavaca (Google Maps)"}
-                </Text>
+                <Image
+                  source={{ uri: selectedBranch ? selectedBranch.mapUrl : MAP_OVERVIEW_URL }}
+                  style={styles.realMapImg}
+                  resizeMode="cover"
+                />
+
+                {/* Badge indicadora sobre la imagen del mapa */}
+                <View style={styles.mapPinOverlay}>
+                  <Ionicons name="location" size={14} color="#FFFFFF" style={{ marginRight: 4 }} />
+                  <Text style={styles.mapPinOverlayText}>
+                    {selectedBranch ? selectedBranch.shortName : "4 Sucursales MRI"}
+                  </Text>
+                </View>
+
+                {/* Botón flotante para abrir ruta real en Google Maps */}
+                <View style={styles.mapOpenGpsFloating}>
+                  <Ionicons name="navigate-circle" size={17} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.mapOpenGpsFloatingText}>
+                    {selectedBranch
+                      ? `Cómo llegar a ${selectedBranch.shortName} (GPS)`
+                      : "Abrir Matriz en Google Maps"}
+                  </Text>
+                </View>
               </TouchableOpacity>
             </View>
 
@@ -877,56 +742,55 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#64748B",
   },
-  realMapView: {
+  realMapImageWrap: {
     width: "100%",
-    height: 350,
+    height: 330,
+    position: "relative",
+    backgroundColor: "#E2E8F0",
+    overflow: "hidden",
   },
-  realMapGpsBtn: {
+  realMapImg: {
+    width: "100%",
+    height: "100%",
+  },
+  mapPinOverlay: {
+    position: "absolute",
+    top: 12,
+    left: 12,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     backgroundColor: "#000684",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    marginHorizontal: 12,
-    marginTop: 10,
-    marginBottom: 10,
-    elevation: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    elevation: 4,
     shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
-  realMapGpsText: {
+  mapPinOverlayText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "bold",
+  },
+  mapOpenGpsFloating: {
+    position: "absolute",
+    bottom: 12,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#000684",
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 20,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+  },
+  mapOpenGpsFloatingText: {
     color: "#FFFFFF",
     fontSize: 12,
-    fontWeight: "bold",
-  },
-  calloutBox: {
-    width: 210,
-    padding: 6,
-  },
-  calloutTitle: {
-    fontSize: 13,
-    fontWeight: "bold",
-    color: "#000684",
-    marginBottom: 2,
-  },
-  calloutSub: {
-    fontSize: 10,
-    color: "#2563EB",
-    fontWeight: "600",
-    marginBottom: 3,
-  },
-  calloutAddress: {
-    fontSize: 11,
-    color: "#475569",
-    marginBottom: 4,
-    lineHeight: 14,
-  },
-  calloutAction: {
-    fontSize: 10,
-    color: "#000684",
     fontWeight: "bold",
   },
 
