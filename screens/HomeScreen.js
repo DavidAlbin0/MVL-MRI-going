@@ -17,7 +17,7 @@ import Carousel from "react-native-snap-carousel";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
-import MapView, { Marker, PROVIDER_GOOGLE, Callout } from "react-native-maps";
+import { WebView } from "react-native-webview";
 
 const data = [
   { id: 1, title: "CheckUps", image: "https://i.imgur.com/jrViBRq.jpeg" },
@@ -26,12 +26,129 @@ const data = [
   { id: 4, title: "Tomografías", image: "https://i.imgur.com/2XLVK0I.jpeg" },
 ];
 
-const INITIAL_REGION = {
-  latitude: 18.82915220343986,
-  longitude: -99.12603465859554,
-  latitudeDelta: 0.55,
-  longitudeDelta: 0.45,
-};
+const generateMapHtml = (selectedId) => `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body, #map {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background: #E8EDF5;
+    }
+    .mri-marker {
+      background: #000684;
+      color: #ffffff;
+      border: 2px solid #ffffff;
+      border-radius: 16px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: bold;
+      white-space: nowrap;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+      cursor: pointer;
+    }
+    .mri-marker-active {
+      background: #000684;
+      border: 2px solid #FFD700;
+      box-shadow: 0 4px 12px rgba(0,6,132,0.6);
+      transform: scale(1.08);
+    }
+    .leaflet-popup-content-wrapper {
+      border-radius: 12px;
+      padding: 4px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .popup-title {
+      font-weight: bold;
+      color: #000684;
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+    .popup-badge {
+      display: inline-block;
+      background: #EEF2FF;
+      color: #000684;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 4px;
+      margin-bottom: 4px;
+    }
+    .popup-addr {
+      font-size: 11px;
+      color: #475569;
+      line-height: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const sucursales = [
+      { id: "cuernavaca", title: "Cuernavaca (Matriz)", shortName: "Cuernavaca", badge: "Matriz Principal", address: "Av. Cuauhtémoc #100, Cantarranas", lat: 18.9259789, lng: -99.2287938 },
+      { id: "jiutepec", title: "Jiutepec (Sucursal)", shortName: "Jiutepec", badge: "Sucursal Oriente", address: "Av. Insurgentes #45, Centro", lat: 18.898535, lng: -99.171207 },
+      { id: "cuautla", title: "Cuautla (Sucursal)", shortName: "Cuautla", badge: "Sucursal Cuautla", address: "Calle Batalla 19 de Febrero #30", lat: 18.816393, lng: -98.948435 },
+      { id: "jojutla", title: "Jojutla (Sucursal)", shortName: "Jojutla", badge: "Sucursal Sur", address: "Calle Zayas Enríquez #202", lat: 18.617170, lng: -99.192552 }
+    ];
+
+    const map = L.map('map', {
+      zoomControl: true,
+      attributionControl: false
+    }).setView([18.829, -99.126], 10);
+
+    L.tileLayer('https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19
+    }).addTo(map);
+
+    const markers = {};
+
+    sucursales.forEach(s => {
+      const isSel = s.id === "${selectedId || ''}";
+      const icon = L.divIcon({
+        className: 'custom-icon',
+        html: '<div class="mri-marker ' + (isSel ? 'mri-marker-active' : '') + '">🏥 ' + s.shortName + '</div>',
+        iconSize: [110, 28],
+        iconAnchor: [55, 14],
+        popupAnchor: [0, -14]
+      });
+
+      const m = L.marker([s.lat, s.lng], { icon: icon }).addTo(map);
+      m.bindPopup(
+        '<div>' +
+          '<div class="popup-title">' + s.title + '</div>' +
+          '<div class="popup-badge">' + s.badge + '</div>' +
+          '<div class="popup-addr">' + s.address + '</div>' +
+        '</div>'
+      );
+
+      m.on('click', () => {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SELECT', id: s.id }));
+        }
+      });
+
+      markers[s.id] = m;
+    });
+
+    window.focusBranch = function(id) {
+      if (id && markers[id]) {
+        map.flyTo(markers[id].getLatLng(), 15, { animate: true, duration: 0.8 });
+        markers[id].openPopup();
+      } else {
+        map.flyTo([18.829, -99.126], 10, { animate: true, duration: 0.8 });
+      }
+    };
+  </script>
+</body>
+</html>
+`;
 
 const SUCURSALES_STATIC = [
   {
@@ -90,7 +207,7 @@ const HomeScreen = () => {
   const navigation = useNavigation();
   const [origin, setOrigin] = useState(null);
   const scrollViewRef = useRef(null);
-  const mapRef = useRef(null);
+  const webViewRef = useRef(null);
   const [token, setToken] = useState(null);
 
   const [selectedBranch, setSelectedBranch] = useState(null); // null = todas
@@ -181,20 +298,11 @@ const HomeScreen = () => {
         });
       }
 
-      if (mapRef.current) {
-        if (branch) {
-          mapRef.current.animateToRegion(
-            {
-              latitude: branch.latlng.latitude,
-              longitude: branch.latlng.longitude,
-              latitudeDelta: 0.025,
-              longitudeDelta: 0.025,
-            },
-            700
-          );
-        } else {
-          mapRef.current.animateToRegion(INITIAL_REGION, 700);
-        }
+      if (webViewRef.current) {
+        const id = branch ? branch.id : "";
+        webViewRef.current.injectJavaScript(
+          `if (window.focusBranch) { window.focusBranch('${id}'); } true;`
+        );
       }
     }, 150);
   };
@@ -417,57 +525,31 @@ const HomeScreen = () => {
                 )}
               </View>
 
-              {/* MAPVIEW REAL (react-native-maps) */}
-              <MapView
-                ref={mapRef}
-                key={refreshKey}
-                style={styles.realMapView}
-                initialRegion={INITIAL_REGION}
-                provider={PROVIDER_GOOGLE}
-                showsUserLocation={true}
-                showsMyLocationButton={true}
-                showsCompass={true}
-                showsScale={true}
-                toolbarEnabled={true}
-              >
-                {SUCURSALES_STATIC.map((sucursal) => (
-                  <Marker
-                    key={sucursal.id}
-                    coordinate={sucursal.latlng}
-                    title={sucursal.title}
-                    description={sucursal.address}
-                    onPress={() => setSelectedBranch(sucursal)}
-                  >
-                    <Image
-                      source={require("../assets/iconos/othergood.png")}
-                      style={{ width: 38, height: 38 }}
-                      resizeMode="contain"
-                    />
-                    <Callout onPress={() => handleNavegarSucursal(sucursal)}>
-                      <View style={styles.calloutBox}>
-                        <Text style={styles.calloutTitle}>{sucursal.title}</Text>
-                        <Text style={styles.calloutSub}>{sucursal.badge}</Text>
-                        <Text style={styles.calloutAddress}>{sucursal.address}</Text>
-                        <Text style={styles.calloutAction}>Toca para cómo llegar en Google Maps →</Text>
-                      </View>
-                    </Callout>
-                  </Marker>
-                ))}
-
-                {origin && (
-                  <Marker
-                    coordinate={origin}
-                    title="Tu Ubicación Actual"
-                    description="Aquí te encuentras"
-                  >
-                    <Image
-                      source={require("../assets/iconos/ubigood.png")}
-                      style={{ width: 38, height: 38 }}
-                      resizeMode="contain"
-                    />
-                  </Marker>
-                )}
-              </MapView>
+              {/* MAPA REAL INTERACTIVO EN VIVO (LEAFLET / CARTO TILES) */}
+              <View style={styles.realMapView}>
+                <WebView
+                  ref={webViewRef}
+                  originWhitelist={["*"]}
+                  source={{ html: generateMapHtml(selectedBranch?.id) }}
+                  style={{ flex: 1, backgroundColor: "#E8EDF5" }}
+                  javaScriptEnabled={true}
+                  domStorageEnabled={true}
+                  startInLoadingState={true}
+                  scalesPageToFit={true}
+                  scrollEnabled={false}
+                  onMessage={(event) => {
+                    try {
+                      const msg = JSON.parse(event.nativeEvent.data);
+                      if (msg.type === "SELECT") {
+                        const target = SUCURSALES_STATIC.find((s) => s.id === msg.id);
+                        if (target) setSelectedBranch(target);
+                      }
+                    } catch (e) {
+                      console.log("Error mensaje mapa:", e);
+                    }
+                  }}
+                />
+              </View>
 
               {/* Botón para abrir ruta real en Google Maps */}
               <TouchableOpacity
