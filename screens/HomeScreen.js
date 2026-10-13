@@ -17,6 +17,7 @@ import Carousel from "react-native-snap-carousel";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
+import MapView, { Marker, PROVIDER_GOOGLE, Callout } from "react-native-maps";
 
 const data = [
   { id: 1, title: "CheckUps", image: "https://i.imgur.com/jrViBRq.jpeg" },
@@ -24,6 +25,13 @@ const data = [
   { id: 3, title: "Resonancias", image: "https://i.imgur.com/NqSHDQx.png" },
   { id: 4, title: "Tomografías", image: "https://i.imgur.com/2XLVK0I.jpeg" },
 ];
+
+const INITIAL_REGION = {
+  latitude: 18.82915220343986,
+  longitude: -99.12603465859554,
+  latitudeDelta: 0.55,
+  longitudeDelta: 0.45,
+};
 
 const SUCURSALES_STATIC = [
   {
@@ -82,6 +90,7 @@ const HomeScreen = () => {
   const navigation = useNavigation();
   const [origin, setOrigin] = useState(null);
   const scrollViewRef = useRef(null);
+  const mapRef = useRef(null);
   const [token, setToken] = useState(null);
 
   const [selectedBranch, setSelectedBranch] = useState(null); // null = todas
@@ -170,6 +179,22 @@ const HomeScreen = () => {
           y: 620,
           animated: true,
         });
+      }
+
+      if (mapRef.current) {
+        if (branch) {
+          mapRef.current.animateToRegion(
+            {
+              latitude: branch.latlng.latitude,
+              longitude: branch.latlng.longitude,
+              latitudeDelta: 0.025,
+              longitudeDelta: 0.025,
+            },
+            700
+          );
+        } else {
+          mapRef.current.animateToRegion(INITIAL_REGION, 700);
+        }
       }
     }, 150);
   };
@@ -368,113 +393,98 @@ const HomeScreen = () => {
               })}
             </ScrollView>
 
-            {/* MAPA DE PRUEBA INTERACTIVO */}
-            <View style={styles.testMapCard}>
-              {/* Barra superior de estado del mapa demo */}
-              <View style={styles.testMapTopBar}>
-                <View style={styles.testMapBadge}>
-                  <View style={styles.testMapBadgeDot} />
-                  <Text style={styles.testMapBadgeText}>MAPA DE PRUEBA · SUCURSALES MORELOS</Text>
+            {/* CONTENEDOR DEL MAPA REAL */}
+            <View style={styles.realMapContainer}>
+              {/* Barra superior con estado y botón reset */}
+              <View style={styles.realMapTopBar}>
+                <View style={styles.realMapBadge}>
+                  <Ionicons name="location" size={14} color="#000684" style={{ marginRight: 6 }} />
+                  <Text style={styles.realMapBadgeText}>
+                    {selectedBranch ? selectedBranch.title : "Sucursales Morelos (4)"}
+                  </Text>
                 </View>
                 {selectedBranch ? (
                   <TouchableOpacity
-                    style={styles.testMapResetBtn}
+                    style={styles.realMapResetBtn}
                     onPress={() => handleSelectBranch(null)}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="refresh-outline" size={12} color="#000684" style={{ marginRight: 3 }} />
-                    <Text style={styles.testMapResetText}>Ver todas</Text>
+                    <Ionicons name="scan-outline" size={12} color="#000684" style={{ marginRight: 4 }} />
+                    <Text style={styles.realMapResetText}>Ver todas</Text>
                   </TouchableOpacity>
                 ) : (
-                  <Text style={styles.testMapHint}>Toca un pin para explorar</Text>
+                  <Text style={styles.realMapHint}>Toca un marcador en el mapa</Text>
                 )}
               </View>
 
-              {/* Canvas visual estilizado del mapa */}
-              <View style={styles.testMapCanvas}>
-                {/* Cuadrícula sutil de fondo */}
-                <View style={styles.mapGridLine1} />
-                <View style={styles.mapGridLine2} />
-                <View style={styles.mapGridLine3} />
-
-                {/* Zona norte montañosa */}
-                <View style={styles.mapZoneNorth}>
-                  <Text style={styles.mapZoneLabel}>SIERRA DE TEPOZTLÁN / PARQUE NACIONAL</Text>
-                </View>
-
-                {/* Autopista México - Acapulco (Autopista del Sol) */}
-                <View style={styles.mapRoadFederal}>
-                  <Text style={styles.mapRoadLabelVert}>AUTOPISTA DEL SOL (95D)</Text>
-                </View>
-
-                {/* Carretera Cuernavaca - Jiutepec - Cuautla */}
-                <View style={styles.mapRoadCuautla}>
-                  <Text style={styles.mapRoadLabelHoriz}>CARR. CUERNAVACA - CUAUTLA</Text>
-                </View>
-
-                {/* Zona Lago Tequesquitengo / Jojutla */}
-                <View style={styles.mapZoneLake}>
-                  <Text style={styles.mapLakeLabel}>LAGO TEQUESQUITENGO</Text>
-                </View>
-
-                {/* Pines interactivos de las 4 sucursales */}
-                {SUCURSALES_STATIC.map((sucursal) => {
-                  const isSelected = selectedBranch?.id === sucursal.id;
-                  return (
-                    <TouchableOpacity
-                      key={sucursal.id}
-                      style={[
-                        styles.testPinWrapper,
-                        sucursal.pos,
-                        isSelected && styles.testPinWrapperActive,
-                      ]}
-                      onPress={() => handleSelectBranch(isSelected ? null : sucursal)}
-                      activeOpacity={0.8}
-                    >
-                      {/* Callout si está seleccionada */}
-                      {isSelected && (
-                        <View style={styles.testPinCallout}>
-                          <Text style={styles.testPinCalloutTitle}>{sucursal.shortName}</Text>
-                          <Text style={styles.testPinCalloutSub}>{sucursal.badge}</Text>
-                        </View>
-                      )}
-
-                      {/* Botón pin circular */}
-                      <View style={[styles.testPinBubble, isSelected && styles.testPinBubbleActive]}>
-                        <Ionicons
-                          name="business"
-                          size={isSelected ? 17 : 14}
-                          color={isSelected ? "#FFFFFF" : "#000684"}
-                        />
+              {/* MAPVIEW REAL (react-native-maps) */}
+              <MapView
+                ref={mapRef}
+                key={refreshKey}
+                style={styles.realMapView}
+                initialRegion={INITIAL_REGION}
+                provider={PROVIDER_GOOGLE}
+                showsUserLocation={true}
+                showsMyLocationButton={true}
+                showsCompass={true}
+                showsScale={true}
+                toolbarEnabled={true}
+              >
+                {SUCURSALES_STATIC.map((sucursal) => (
+                  <Marker
+                    key={sucursal.id}
+                    coordinate={sucursal.latlng}
+                    title={sucursal.title}
+                    description={sucursal.address}
+                    onPress={() => setSelectedBranch(sucursal)}
+                  >
+                    <Image
+                      source={require("../assets/iconos/othergood.png")}
+                      style={{ width: 38, height: 38 }}
+                      resizeMode="contain"
+                    />
+                    <Callout onPress={() => handleNavegarSucursal(sucursal)}>
+                      <View style={styles.calloutBox}>
+                        <Text style={styles.calloutTitle}>{sucursal.title}</Text>
+                        <Text style={styles.calloutSub}>{sucursal.badge}</Text>
+                        <Text style={styles.calloutAddress}>{sucursal.address}</Text>
+                        <Text style={styles.calloutAction}>Toca para cómo llegar en Google Maps →</Text>
                       </View>
+                    </Callout>
+                  </Marker>
+                ))}
 
-                      {/* Etiqueta de la sucursal */}
-                      <View style={[styles.testPinLabelBox, isSelected && styles.testPinLabelBoxActive]}>
-                        <Text style={[styles.testPinLabelText, isSelected && styles.testPinLabelTextActive]}>
-                          {sucursal.shortName}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
+                {origin && (
+                  <Marker
+                    coordinate={origin}
+                    title="Tu Ubicación Actual"
+                    description="Aquí te encuentras"
+                  >
+                    <Image
+                      source={require("../assets/iconos/ubigood.png")}
+                      style={{ width: 38, height: 38 }}
+                      resizeMode="contain"
+                    />
+                  </Marker>
+                )}
+              </MapView>
 
-                {/* Botón flotante inferior para abrir Google Maps oficial */}
-                <TouchableOpacity
-                  style={styles.testMapGpsButton}
-                  onPress={() => {
-                    const target = selectedBranch || SUCURSALES_STATIC[0];
-                    handleNavegarSucursal(target);
-                  }}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="navigate-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                  <Text style={styles.testMapGpsText}>
-                    {selectedBranch
-                      ? `Abrir ${selectedBranch.shortName} en Google Maps`
-                      : "Abrir Matriz en Google Maps"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              {/* Botón para abrir ruta real en Google Maps */}
+              <TouchableOpacity
+                style={styles.realMapGpsBtn}
+                onPress={() => {
+                  const target = selectedBranch || SUCURSALES_STATIC[0];
+                  handleNavegarSucursal(target);
+                }}
+                activeOpacity={0.88}
+              >
+                <Ionicons name="navigate" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.realMapGpsText}>
+                  {selectedBranch
+                    ? `Cómo llegar a ${selectedBranch.shortName} (Google Maps)`
+                    : "Cómo llegar a Matriz Cuernavaca (Google Maps)"}
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {/* Tarjeta de información de la sucursal seleccionada */}
@@ -726,8 +736,8 @@ const styles = StyleSheet.create({
   backg: {
     backgroundColor: "#ffffff",
   },
-  // ESTILOS MAPA DE PRUEBA INTERACTIVO
-  testMapCard: {
+  // ESTILOS MAPA REAL (react-native-maps)
+  realMapContainer: {
     width: "92%",
     alignSelf: "center",
     marginTop: 15,
@@ -739,258 +749,102 @@ const styles = StyleSheet.create({
     elevation: 4,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.12,
     shadowRadius: 6,
     overflow: "hidden",
   },
-  testMapTopBar: {
+  realMapTopBar: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 10,
     backgroundColor: "#F8FAFC",
     borderBottomWidth: 1,
     borderBottomColor: "#E2E8F0",
   },
-  testMapBadge: {
+  realMapBadge: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#EEF2FF",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: 6,
   },
-  testMapBadgeDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "#10B981",
-    marginRight: 6,
-  },
-  testMapBadgeText: {
-    fontSize: 10,
+  realMapBadgeText: {
+    fontSize: 11,
     fontWeight: "bold",
     color: "#000684",
-    letterSpacing: 0.5,
   },
-  testMapResetBtn: {
+  realMapResetBtn: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 6,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#CBDCF0",
   },
-  testMapResetText: {
+  realMapResetText: {
     fontSize: 11,
     fontWeight: "600",
     color: "#000684",
   },
-  testMapHint: {
+  realMapHint: {
     fontSize: 11,
     color: "#64748B",
   },
-  testMapCanvas: {
-    height: 330,
+  realMapView: {
     width: "100%",
-    backgroundColor: "#EBF3FC",
-    position: "relative",
-    overflow: "hidden",
+    height: 350,
   },
-  mapGridLine1: {
-    position: "absolute",
-    top: "33%",
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: "rgba(203, 220, 240, 0.45)",
-  },
-  mapGridLine2: {
-    position: "absolute",
-    top: "66%",
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: "rgba(203, 220, 240, 0.45)",
-  },
-  mapGridLine3: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: "50%",
-    width: 1,
-    backgroundColor: "rgba(203, 220, 240, 0.45)",
-  },
-  mapZoneNorth: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 38,
-    backgroundColor: "#DCFCE7",
-    opacity: 0.7,
-    justifyContent: "center",
+  realMapGpsBtn: {
+    flexDirection: "row",
     alignItems: "center",
-  },
-  mapZoneLabel: {
-    fontSize: 8,
-    fontWeight: "bold",
-    color: "#166534",
-    letterSpacing: 1.2,
-  },
-  mapRoadFederal: {
-    position: "absolute",
-    top: 38,
-    bottom: 0,
-    left: "26%",
-    width: 8,
-    backgroundColor: "#CBD5E1",
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: "#94A3B8",
     justifyContent: "center",
-    alignItems: "center",
-  },
-  mapRoadLabelVert: {
-    fontSize: 6,
-    color: "#64748B",
-    fontWeight: "bold",
-    letterSpacing: 1,
-    transform: [{ rotate: "90deg" }],
-    width: 160,
-    textAlign: "center",
-  },
-  mapRoadCuautla: {
-    position: "absolute",
-    top: "40%",
-    left: "26%",
-    right: "8%",
-    height: 7,
-    backgroundColor: "#CBD5E1",
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: "#94A3B8",
-    justifyContent: "center",
-  },
-  mapRoadLabelHoriz: {
-    fontSize: 6,
-    color: "#64748B",
-    fontWeight: "bold",
-    letterSpacing: 1,
-    textAlign: "center",
-  },
-  mapZoneLake: {
-    position: "absolute",
-    bottom: 12,
-    right: "16%",
-    width: 90,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#BFDBFE",
-    opacity: 0.65,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  mapLakeLabel: {
-    fontSize: 8,
-    color: "#1E40AF",
-    fontWeight: "bold",
-  },
-  testPinWrapper: {
-    position: "absolute",
-    alignItems: "center",
-    zIndex: 10,
-  },
-  testPinWrapperActive: {
-    zIndex: 30,
-  },
-  testPinCallout: {
     backgroundColor: "#000684",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginBottom: 4,
-    alignItems: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-  },
-  testPinCalloutTitle: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "bold",
-  },
-  testPinCalloutSub: {
-    color: "#93C5FD",
-    fontSize: 8,
-  },
-  testPinBubble: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 2,
-    borderColor: "#000684",
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 3,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 10,
+    elevation: 2,
     shadowColor: "#000",
     shadowOpacity: 0.15,
     shadowRadius: 3,
   },
-  testPinBubbleActive: {
-    backgroundColor: "#000684",
-    borderColor: "#FFD700",
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    transform: [{ scale: 1.08 }],
-  },
-  testPinLabelBox: {
-    backgroundColor: "rgba(255,255,255,0.92)",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginTop: 2,
-    borderWidth: 1,
-    borderColor: "#CBD5E1",
-  },
-  testPinLabelBoxActive: {
-    backgroundColor: "#000684",
-    borderColor: "#000684",
-  },
-  testPinLabelText: {
-    fontSize: 9,
-    fontWeight: "600",
-    color: "#1E293B",
-  },
-  testPinLabelTextActive: {
+  realMapGpsText: {
     color: "#FFFFFF",
+    fontSize: 12,
     fontWeight: "bold",
   },
-  testMapGpsButton: {
-    position: "absolute",
-    bottom: 12,
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#000684",
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    borderRadius: 22,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    zIndex: 40,
+  calloutBox: {
+    width: 210,
+    padding: 6,
   },
-  testMapGpsText: {
-    color: "#FFFFFF",
+  calloutTitle: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#000684",
+    marginBottom: 2,
+  },
+  calloutSub: {
+    fontSize: 10,
+    color: "#2563EB",
+    fontWeight: "600",
+    marginBottom: 3,
+  },
+  calloutAddress: {
     fontSize: 11,
+    color: "#475569",
+    marginBottom: 4,
+    lineHeight: 14,
+  },
+  calloutAction: {
+    fontSize: 10,
+    color: "#000684",
     fontWeight: "bold",
   },
 
